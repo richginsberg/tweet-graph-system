@@ -43,7 +43,8 @@ class GraphService:
         SET t.text = $text,
             t.created_at = $created_at,
             t.bookmark_url = $bookmark_url,
-            t.embedding = $embedding
+            t.embedding = $embedding,
+            t.truncated = $truncated
         
         // Create author
         WITH t
@@ -95,6 +96,7 @@ class GraphService:
             "created_at": tweet.created_at.isoformat() if tweet.created_at else None,
             "bookmark_url": tweet.bookmark_url,
             "embedding": embedding,
+            "truncated": tweet.truncated if tweet.truncated is not None else True,
             "author_id": tweet.author_id,
             "author_username": tweet.author_username,
             "hashtags": tweet.hashtags or [],
@@ -174,3 +176,112 @@ class GraphService:
             stats[key] = result["count"] if result else 0
         
         return stats
+    
+    async def get_graph_data(self) -> dict:
+        """Get graph data for visualization"""
+        async with self.client.session() as session:
+            # Get all nodes with their types
+            nodes_result = await session.run("""
+                MATCH (n)
+                RETURN id(n) as internal_id, labels(n)[0] as type, 
+                       coalesce(n.id, n.name, n.tag, n.username, n.url, toString(id(n))) as name,
+                       properties(n) as props
+                LIMIT 500
+            """)
+            
+            nodes = []
+            node_id_map = {}
+            
+            async for record in nodes_result:
+                internal_id = record["internal_id"]
+                node_type = record["type"]
+                name = record["name"] or "unknown"
+                
+                seq_id = str(len(nodes))
+                node_id_map[internal_id] = seq_id
+                
+                nodes.append({
+                    "id": seq_id,
+                    "name": str(name),
+                    "type": node_type,
+                    "properties": dict(record["props"]) if record["props"] else {}
+                })
+            
+            # Get all relationships
+            links_result = await session.run("""
+                MATCH (a)-[r]->(b)
+                RETURN id(a) as source_id, id(b) as target_id, type(r) as rel_type
+                LIMIT 1000
+            """)
+            
+            links = []
+            async for record in links_result:
+                source_id = record["source_id"]
+                target_id = record["target_id"]
+                
+                if source_id in node_id_map and target_id in node_id_map:
+                    links.append({
+                        "source": node_id_map[source_id],
+                        "target": node_id_map[target_id],
+                        "type": record["rel_type"]
+                    })
+            
+            return {"nodes": nodes, "links": links}
+    
+    async def get_all_tweets(self) -> list:
+        """Get all tweets with basic info"""
+        async with self.client.session() as session:
+            result = await session.run("""
+                MATCH (t:Tweet)
+                OPTIONAL MATCH (u:User)-[:POSTED]->(t)
+                RETURN t.id as id, t.text as text, t.truncated as truncated,
+                       u.username as author,
+                       [(t)-[:HAS_HASHTAG]->(h) | h.tag] as hashtags
+                ORDER BY t.created_at DESC
+                LIMIT 100
+            """)
+            
+            tweets = []
+            async for record in result:
+                tweets.append({
+                    "id": record["id"],
+                    "text": record["text"],
+                    "truncated": record["truncated"],
+                    "author": record["author"],
+                    "hashtags": record["hashtags"] or []
+                })
+            return tweets
+    
+    async def get_themes(self) -> dict:
+        """Get all themes with tweet counts"""
+        async with self.client.session() as session:
+            result = await session.run("""
+                MATCH (th:Theme)<-[:ABOUT_THEME]-(t:Tweet)
+                RETURN th.name as name, count(t) as count
+                ORDER BY count DESC
+            """)
+            
+            themes = []
+            async for record in result:
+                themes.append({
+                    "name": record["name"],
+                    "count": record["count"]
+                })
+            return {"themes": themes}
+    
+    async def get_entities(self) -> dict:
+        """Get all entities with mention counts"""
+        async with self.client.session() as session:
+            result = await session.run("""
+                MATCH (e:Entity)<-[:MENTIONS_ENTITY]-(t:Tweet)
+                RETURN e.name as name, count(t) as count
+                ORDER BY count DESC
+            """)
+            
+            entities = []
+            async for record in result:
+                entities.append({
+                    "name": record["name"],
+                    "count": record["count"]
+                })
+            return {"entities": entities}

@@ -3,6 +3,12 @@
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+from enum import Enum
+
+class FetchMethod(str, Enum):
+    BROWSER = "browser"
+    API = "api"
+    HYBRID = "hybrid"
 
 class TweetCreate(BaseModel):
     id: str
@@ -16,6 +22,9 @@ class TweetCreate(BaseModel):
     reply_to: Optional[str] = None
     quote_of: Optional[str] = None
     bookmark_url: Optional[str] = None
+    truncated: Optional[bool] = True  # Default to truncated for browser fetches
+    is_truncated: Optional[bool] = False
+    fetch_method: Optional[FetchMethod] = FetchMethod.BROWSER
 
 class TweetResponse(BaseModel):
     id: str

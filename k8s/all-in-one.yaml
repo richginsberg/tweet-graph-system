@@ -1,0 +1,244 @@
+# All-in-one Kubernetes deployment
+# Deploy with: kubectl apply -f all-in-one.yaml
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tweet-graph
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: neo4j-data
+  namespace: tweet-graph
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+# Neo4j Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: neo4j
+  namespace: tweet-graph
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: neo4j
+  template:
+    metadata:
+      labels:
+        app: neo4j
+    spec:
+      containers:
+      - name: neo4j
+        image: neo4j:5.15-community
+        ports:
+        - containerPort: 7474
+          name: http
+        - containerPort: 7687
+          name: bolt
+        env:
+        - name: NEO4J_AUTH
+          value: "neo4j/tweetgraph123"
+        - name: NEO4J_PLUGINS
+          value: '["apoc"]'
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: neo4j-data
+          mountPath: /data
+      volumes:
+      - name: neo4j-data
+        persistentVolumeClaim:
+          claimName: neo4j-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: neo4j
+  namespace: tweet-graph
+spec:
+  selector:
+    app: neo4j
+  ports:
+  - port: 7474
+    targetPort: 7474
+    name: http
+  - port: 7687
+    targetPort: 7687
+    name: bolt
+---
+# Tweet Graph API Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tweet-graph-api
+  namespace: tweet-graph
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: tweet-graph-api
+  template:
+    metadata:
+      labels:
+        app: tweet-graph-api
+    spec:
+      containers:
+      - name: api
+        image: tweet-graph-api:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+        env:
+        - name: NEO4J_URI
+          value: "bolt://neo4j:7687"
+        - name: NEO4J_USER
+          value: "neo4j"
+        - name: NEO4J_PASSWORD
+          value: "tweetgraph123"
+        - name: EMBEDDING_PROVIDER
+          value: "chutes-0.6b"
+        - name: EMBEDDING_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: tweet-graph-secrets
+              key: embedding-api-key
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tweet-graph-api
+  namespace: tweet-graph
+spec:
+  selector:
+    app: tweet-graph-api
+  ports:
+  - port: 80
+    targetPort: 8000
+---
+# Tweet Graph Portal Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tweet-graph-portal
+  namespace: tweet-graph
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: tweet-graph-portal
+  template:
+    metadata:
+      labels:
+        app: tweet-graph-portal
+    spec:
+      containers:
+      - name: portal
+        image: tweet-graph-portal:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+        env:
+        - name: NEXT_PUBLIC_API_URL
+          value: "http://tweet-graph-api"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tweet-graph-portal
+  namespace: tweet-graph
+spec:
+  selector:
+    app: tweet-graph-portal
+  ports:
+  - port: 80
+    targetPort: 3000
+---
+# Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tweet-graph-ingress
+  namespace: tweet-graph
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - host: tweet-graph.local
+    http:
+      paths:
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: tweet-graph-api
+            port:
+              number: 80
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: tweet-graph-portal
+            port:
+              number: 80
+---
+# Secrets (UPDATE THESE!)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tweet-graph-secrets
+  namespace: tweet-graph
+type: Opaque
+stringData:
+  embedding-api-key: "your-api-key-here"
+  twitter-bearer-token: "your-twitter-bearer-token"

@@ -18,7 +18,12 @@ A complete system for storing tweets in a graph database, performing semantic se
 - **🤖 Multi-Provider Support** - Works with OpenAI, DeepSeek, Together AI, Groq, Ollama, or any OpenAI-compatible API
 - **📱 OpenClaw Skill** - Natural language commands to store and search tweets
 - **🔄 Bookmark Sync** - Daily cron job to fetch and store your X/Twitter bookmarks
+- **🐦 X API v2 Integration** - Fix truncated posts with hybrid mode (browser + API)
+- **📖 Truncated Post Labels** - Automatic detection and labeling of incomplete tweets
 - **🐳 Easy Deployment** - Docker Compose for local, Kubernetes for production
+- **📊 Web Portal** - Next.js dashboard with graph visualization and search
+- **🏷️ Theme Extraction** - Automatic detection of AI, crypto, dev, business themes
+- **👤 Entity Recognition** - Extract proper nouns and create relationships
 
 ---
 
@@ -69,6 +74,7 @@ curl http://localhost:8000/health
 **Services:**
 - 🌐 Neo4j Browser: http://localhost:7474
 - 🚀 Tweet Graph API: http://localhost:8000
+- 📊 Web Portal: http://localhost:3000
 - 📖 API Documentation: http://localhost:8000/docs
 
 **Default Credentials:**
@@ -83,6 +89,14 @@ curl http://localhost:8000/health
 │  Browser Relay  │────▶│  Bookmark Fetcher │────▶│                 │
 │  (Chrome X)     │     │  (Daily Cron)      │     │     Neo4j       │
 └─────────────────┘     └──────────────────┘     │   (Graph DB)    │
+                                 │               │                 │
+                        ┌────────┴────────┐      │                 │
+                        │                 │      │                 │
+                        ▼                 ▼      │                 │
+                   ┌─────────┐     ┌──────────┐  │                 │
+                   │ Browser │     │ X API v2 │  │                 │
+                   │ Scrape  │     │ (Hybrid) │  │                 │
+                   └─────────┘     └──────────┘  │                 │
                                                  │                 │
 ┌─────────────────┐     ┌──────────────────┐     │                 │
 │  OpenClaw Skill │────▶│  Tweet Graph API  │────▶│                 │
@@ -104,6 +118,7 @@ curl http://localhost:8000/health
 |-----------|------------|---------|
 | **Neo4j** | Graph Database 5.15 | Store tweets, users, hashtags, relationships |
 | **Tweet Graph API** | FastAPI + Python | REST API for storage/retrieval |
+| **Web Portal** | Next.js 14 + React | Visual dashboard and graph explorer |
 | **OpenClaw Skill** | Python | Natural language interface |
 | **Bookmark Fetcher** | Python CronJob | Automated X bookmarks sync |
 
@@ -116,6 +131,8 @@ curl http://localhost:8000/health
 (:Tweet)-[:REPLY_TO]->(:Tweet)
 (:Tweet)-[:QUOTES]->(:Tweet)
 (:Tweet)-[:CONTAINS_URL]->(:URL)
+(:Tweet)-[:ABOUT_THEME]->(:Theme)
+(:Tweet)-[:MENTIONS_ENTITY]->(:Entity)
 ```
 
 ---
@@ -352,6 +369,86 @@ EMBEDDING_DIMENSIONS=1536
 | `NEO4J_URI` | Neo4j connection | `bolt://neo4j:7687` |
 | `NEO4J_USER` | Neo4j username | `neo4j` |
 | `NEO4J_PASSWORD` | Neo4j password | `tweetgraph123` |
+| `FETCH_MODE` | Bookmark fetch mode | `browser` |
+| `X_BEARER_TOKEN` | X API v2 bearer token | - |
+| `TRUNCATION_INDICATORS` | Truncation detection chars | `…,>>>,[more]` |
+
+---
+
+## Web Portal
+
+The Tweet Graph Portal is a Next.js application for visualizing and exploring your tweet graph.
+
+### Features
+
+- **📊 Dashboard** - Overview stats with quick navigation
+- **🕸️ Graph Visualization** - Interactive force-directed graph (react-force-graph)
+- **🔍 Semantic Search** - Find tweets by meaning, not just keywords
+- **📝 Tweet Browser** - Browse all stored tweets with filters
+- **🏷️ Themes & Entities** - Explore extracted topics and proper nouns
+
+### Running Locally
+
+```bash
+cd portal
+
+# Install dependencies
+npm install
+
+# Development server
+npm run dev
+
+# Access at http://localhost:3000
+```
+
+### Building for Production
+
+```bash
+# Build standalone
+npm run build
+
+# Start production server
+npm start
+```
+
+### Docker Build
+
+```bash
+# Build image
+docker build -t tweet-graph-portal:latest ./portal
+
+# Run container
+docker run -p 3000:3000 \
+  -e NEXT_PUBLIC_API_URL=http://your-api-host:8000 \
+  tweet-graph-portal:latest
+```
+
+### Portal Pages
+
+| Route | Description |
+|-------|-------------|
+| `/` | Dashboard with stats overview |
+| `/graph` | Interactive graph visualization |
+| `/search` | Semantic search interface |
+| `/tweets` | Browse all stored tweets |
+| `/themes` | Themes and entities explorer |
+
+### Configuration
+
+The Portal automatically detects the API URL based on how you access it:
+- Access via `localhost:3000` → API at `localhost:8000`
+- Access via `192.168.x.x:3000` → API at `192.168.x.x:8000`
+
+No manual configuration needed for LAN access. The browser uses the same hostname as the Portal.
+
+For custom deployments, set via environment variable:
+
+```bash
+# Docker Compose
+environment:
+  - NEXT_PUBLIC_API_URL=http://your-api-host:8000
+  - API_URL=http://api:8000  # For SSR (Docker internal)
+```
 
 ---
 
@@ -366,9 +463,13 @@ EMBEDDING_DIMENSIONS=1536
 | `GET` | `/config` | Current configuration |
 | `POST` | `/tweets` | Store a tweet |
 | `GET` | `/tweets/{id}` | Get tweet by ID |
+| `GET` | `/tweets` | Get all tweets |
 | `POST` | `/search` | Vector similarity search |
 | `POST` | `/related` | Graph traversal query |
 | `POST` | `/bookmarks/sync` | Bulk import bookmarks |
+| `GET` | `/graph` | Graph data for visualization |
+| `GET` | `/themes` | All themes with counts |
+| `GET` | `/entities` | All entities with counts |
 
 ### Store Tweet
 
@@ -538,7 +639,8 @@ If you have a paired node with Chrome:
 **Step 2: Install dependencies**
 
 ```bash
-cd bookmark-fetcher
+# Navigate to bookmark-fetcher
+cd tweet-graph-system/bookmark-fetcher
 
 # Create virtual environment
 python3 -m venv venv
@@ -552,10 +654,14 @@ playwright install chromium
 **Step 3: Run**
 
 ```bash
-# Activate venv if not already
+# Navigate to bookmark-fetcher and activate venv
+cd tweet-graph-system/bookmark-fetcher
 source venv/bin/activate
 
+# Set API URL
 export TWEET_GRAPH_API_URL=http://localhost:8000
+
+# Run fetcher
 python -m fetcher.main_playwright
 ```
 
@@ -574,6 +680,112 @@ python -m fetcher.main_playwright
 - `ct0` - CSRF token
 
 > ⚠️ **Important:** Add `cookies.json` to `.gitignore` (already included) to avoid committing credentials.
+
+#### Daily Cron Job (Automatic Sync)
+
+To automatically fetch bookmarks daily:
+
+**Step 1: Create cron script**
+
+```bash
+cd tweet-graph-system/scripts
+chmod +x fetch-bookmarks-cron.sh
+```
+
+**Step 2: Edit the script to match your paths**
+
+```bash
+#!/bin/bash
+# Update this path to match your installation
+cd /path/to/tweet-graph-system/bookmark-fetcher
+source venv/bin/activate
+export TWEET_GRAPH_API_URL=http://localhost:8000
+python -m fetcher.main_playwright
+echo "$(date): Fetch completed" >> /var/log/tweet-graph.log
+```
+
+**Step 3: Add to crontab**
+
+```bash
+crontab -e
+
+# Add this line (runs daily at 6 AM)
+0 6 * * * /path/to/tweet-graph-system/scripts/fetch-bookmarks-cron.sh
+```
+
+**Cron schedule examples:**
+
+| Schedule | Cron expression |
+|----------|-----------------|
+| Daily at 6 AM | `0 6 * * *` |
+| Every 12 hours | `0 */12 * * *` |
+| Every hour | `0 * * * *` |
+| Daily at midnight | `0 0 * * *` |
+
+**View cron logs:**
+
+```bash
+cat /var/log/tweet-graph.log
+```
+
+#### Fetch Modes & Truncated Post Handling
+
+The bookmark fetcher supports three modes for handling tweet content:
+
+| Mode | Description | Best For |
+|------|-------------|----------|
+| `browser` | Browser scraping only, marks truncated tweets | No API setup needed |
+| `api` | X API v2 only (for low usage) | Users with X developer access |
+| `hybrid` | Browser + API to fix truncated tweets | Best experience (recommended) |
+
+**Configure fetch mode:**
+
+```bash
+# In .env or environment
+FETCH_MODE=browser   # Default: browser only
+FETCH_MODE=hybrid    # Recommended: browser + API
+FETCH_MODE=api       # API only (requires credentials)
+```
+
+**Truncated posts** are automatically detected and labeled:
+
+```
+📖 [TRUNCATED - click bookmark for full text]
+
+Original truncated text...
+```
+
+They're also tagged with `__truncated__` for easy filtering.
+
+**X API v2 Setup (for hybrid/api modes):**
+
+1. Go to https://developer.twitter.com/en/portal/dashboard
+2. Create a project & app (Free tier: 1,500 posts/month)
+3. Generate Bearer Token
+4. Configure:
+
+```bash
+# In .env
+FETCH_MODE=hybrid
+X_BEARER_TOKEN=your_bearer_token_here
+```
+
+**Customize truncation detection:**
+
+```bash
+# Comma-separated indicators
+TRUNCATION_INDICATORS=…,>>>,[more],…
+```
+
+**Run with hybrid mode:**
+
+```bash
+cd bookmark-fetcher
+source venv/bin/activate
+export FETCH_MODE=hybrid
+export X_BEARER_TOKEN=your_token
+python -m fetcher.main_hybrid
+```
 
 ### Commands
 
@@ -805,12 +1017,18 @@ pytest tests/
 # API
 docker build -t tweet-graph-api:latest tweet-graph-api/
 
+# Portal
+docker build -t tweet-graph-portal:latest portal/
+
 # Bookmark fetcher
 docker build -t bookmark-fetcher:latest bookmark-fetcher/
 
 # Push to registry
 docker tag tweet-graph-api:latest your-registry/tweet-graph-api:latest
 docker push your-registry/tweet-graph-api:latest
+
+docker tag tweet-graph-portal:latest your-registry/tweet-graph-portal:latest
+docker push your-registry/tweet-graph-portal:latest
 ```
 
 ---

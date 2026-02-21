@@ -50,6 +50,23 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Next.js Portal
+  portal:
+    build:
+      context: ./portal
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=http://localhost:8000
+    container_name: tweet-graph-portal
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - API_URL=http://api:8000
+    depends_on:
+      - api
+    restart: unless-stopped
+
   # Optional: Bookmark Fetcher (run manually or on schedule)
   # Uncomment to enable
   # bookmark-fetcher:

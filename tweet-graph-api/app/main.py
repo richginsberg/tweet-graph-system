@@ -86,7 +86,7 @@ async def store_tweet(tweet: TweetCreate):
             )
         
         # Store tweet with embeddings
-        result = await graph_service.store_tweet(tweet)
+        result = await graph_service.store_tweet(tweet, tweet.truncated)
         
         return TweetResponse(
             id=tweet.id,
@@ -160,6 +160,26 @@ async def get_stats():
     stats["embedding_provider"] = settings.EMBEDDING_PROVIDER
     stats["embedding_model"] = settings.get_embedding_config()["model"]
     return stats
+
+@app.get("/graph")
+async def get_graph():
+    """Get graph data for visualization (nodes and links)"""
+    return await graph_service.get_graph_data()
+
+@app.get("/tweets")
+async def get_all_tweets():
+    """Get all tweets"""
+    return await graph_service.get_all_tweets()
+
+@app.get("/themes")
+async def get_themes():
+    """Get all themes with tweet counts"""
+    return await graph_service.get_themes()
+
+@app.get("/entities")
+async def get_entities():
+    """Get all entities with mention counts"""
+    return await graph_service.get_entities()
 
 @app.get("/config")
 async def get_config():

@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tweet-graph-portal
+  namespace: tweet-graph
+  labels:
+    app: tweet-graph-portal
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: tweet-graph-portal
+  template:
+    metadata:
+      labels:
+        app: tweet-graph-portal
+    spec:
+      containers:
+      - name: portal
+        image: tweet-graph-portal:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: NEXT_PUBLIC_API_URL
+          value: "http://tweet-graph-api"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tweet-graph-portal
+  namespace: tweet-graph
+spec:
+  selector:
+    app: tweet-graph-portal
+  ports:
+  - port: 80
+    targetPort: 3000
+    name: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tweet-graph-portal-ingress
+  namespace: tweet-graph
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - host: tweet-graph.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: tweet-graph-portal
+            port:
+              number: 80

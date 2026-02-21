@@ -63,3 +63,14 @@ Thumbs.db
 
 # Kubernetes
 *.kubeconfig
+
+# Next.js Portal
+portal/node_modules/
+portal/.next/
+portal/out/
+portal/.env*.local
+portal/public/
+
+# Testing
+*.bak
+*.tmp

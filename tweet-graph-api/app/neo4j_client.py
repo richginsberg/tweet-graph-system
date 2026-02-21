@@ -40,3 +40,7 @@ class Neo4jClient:
             result = await session.run(query, parameters or {})
             record = await result.single()
             return dict(record) if record else None
+    
+    def session(self):
+        """Get a Neo4j session context manager"""
+        return self.driver.session()
