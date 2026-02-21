@@ -1,0 +1,9 @@
+# Tweet Graph System - Kubernetes Deployment
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tweet-graph
+  labels:
+    app.kubernetes.io/name: tweet-graph
+    app.kubernetes.io/part-of: tweet-graph-system

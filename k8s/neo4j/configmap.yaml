@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: neo4j-config
+  namespace: tweet-graph
+  labels:
+    app.kubernetes.io/name: neo4j
+data:
+  NEO4J_server_memory_heap_initial__size: "512m"
+  NEO4J_server_memory_heap_max__size: "1G"
+  NEO4J_server_memory_pagecache_size: "512m"
+  NEO4J_dbms_security_procedures_unrestricted: "apoc.*"
+  NEO4J_dbms_security_procedures_allowlist: "apoc.*"
+  # Enable vector index
+  NEO4J_dbms_indexes_default__provider: "native-btree-1.0"

@@ -1,0 +1,9 @@
+{
+  "name": "tweet-graph-skill",
+  "version": "1.0.0",
+  "description": "OpenClaw skill for storing and retrieving tweets in Neo4j",
+  "main": "src/skill.py",
+  "dependencies": {
+    "httpx": ">=0.25.0"
+  }
+}
