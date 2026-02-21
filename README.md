@@ -500,7 +500,7 @@ Content-Type: application/json
 
 ```bash
 # Copy skill to OpenClaw skills directory
-cp -r openclaw-skill-tweet-graph ~/.openclaw/skills/
+cp -r openclaw-skill-tweet-graph ~/.openclaw/skills/tweet-graph
 
 # Restart OpenClaw
 ```
@@ -514,6 +514,66 @@ export TWEET_GRAPH_API_URL=http://localhost:8000
 ```
 
 Or add to your OpenClaw configuration.
+
+### X/Twitter Authentication (for Bookmark Fetcher)
+
+The bookmark fetcher supports two authentication methods:
+
+#### Option A: Browser Relay
+
+If you have a paired node with Chrome:
+1. Log into X.com in Chrome on the paired node
+2. The fetcher navigates to bookmarks using your existing session
+3. Session cookies handle authentication automatically
+
+#### Option B: Playwright + Cookies (Local)
+
+**Step 1: Export cookies from Chrome**
+
+1. Install **EditThisCookie** or **Cookie Editor** extension
+2. Go to https://x.com and log in
+3. Click extension → Export cookies → JSON
+4. Save to: `bookmark-fetcher/cookies.json`
+
+**Step 2: Install dependencies**
+
+```bash
+cd bookmark-fetcher
+
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements-playwright.txt
+playwright install chromium
+```
+
+**Step 3: Run**
+
+```bash
+# Activate venv if not already
+source venv/bin/activate
+
+export TWEET_GRAPH_API_URL=http://localhost:8000
+python -m fetcher.main_playwright
+```
+
+**Cookie format:**
+
+```json
+[
+  {"name": "auth_token", "value": "xxx", "domain": ".x.com"},
+  {"name": "ct0", "value": "xxx", "domain": ".x.com"},
+  {"name": "guest_id", "value": "xxx", "domain": ".x.com"}
+]
+```
+
+**Key cookies needed:**
+- `auth_token` - Main authentication
+- `ct0` - CSRF token
+
+> ⚠️ **Important:** Add `cookies.json` to `.gitignore` (already included) to avoid committing credentials.
 
 ### Commands
 
