@@ -103,13 +103,25 @@ curl http://localhost:8000/health
 │  (Manual Store) │     │  (FastAPI)        │     │                 │
 └─────────────────┘     └──────────────────┘     └─────────────────┘
                                 │
-                                ▼
-                        ┌──────────────────┐
-                        │ Embedding Provider│
-                        │ (OpenAI/DeepSeek/ │
-                        │  Together/Groq/   │
-                        │  Ollama/Custom)   │
-                        └──────────────────┘
+                                │
+        ┌───────────────────────┼───────────────────────┐
+                        ┌───────┴───────┐
+                        │               │
+                        ▼               ▼
+                ┌──────────────────┐    ┌──────────────────┐
+                │ Embedding Provider│    │   Web Portal     │
+                │ (OpenAI/DeepSeek/ │    │   (Next.js)      │
+                │  Together/Groq/   │    │                  │
+                │  Chutes/Ollama)   │    │  • Dashboard     │
+                └──────────────────┘    │  • Graph View    │
+                                        │  • Search        │
+                        ┌───────────────│  • Themes        │
+                        │               └──────────────────┘
+                        ▼
+                 ┌─────────────┐
+                 │   Browser   │
+                 │ (Local/LAN) │
+                 └─────────────┘
 ```
 
 ### Components
@@ -119,18 +131,22 @@ curl http://localhost:8000/health
 | **Neo4j** | Graph Database 5.15 | Store tweets, users, hashtags, relationships |
 | **Tweet Graph API** | FastAPI + Python | REST API for storage/retrieval |
 | **Web Portal** | Next.js 14 + React | Visual dashboard and graph explorer |
+| **Embedding Provider** | OpenAI/Chutes/etc | Vector embeddings for semantic search |
 | **OpenClaw Skill** | Python | Natural language interface |
 | **Bookmark Fetcher** | Python CronJob | Automated X bookmarks sync |
 
 ### Graph Schema
 
 ```
+# Core Relationships
 (:User)-[:POSTED]->(:Tweet)
 (:Tweet)-[:HAS_HASHTAG]->(:Hashtag)
 (:Tweet)-[:MENTIONS]->(:User)
 (:Tweet)-[:REPLY_TO]->(:Tweet)
 (:Tweet)-[:QUOTES]->(:Tweet)
 (:Tweet)-[:CONTAINS_URL]->(:URL)
+
+# Theme & Entity Extraction
 (:Tweet)-[:ABOUT_THEME]->(:Theme)
 (:Tweet)-[:MENTIONS_ENTITY]->(:Entity)
 ```
