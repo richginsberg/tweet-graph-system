@@ -205,6 +205,7 @@ export default function TweetsPage() {
 
 function TweetCard({ tweet, index, isLast }: { tweet: Tweet; index: number; isLast: boolean }) {
   const [showEmbed, setShowEmbed] = useState(false)
+  const [isExpanded, setIsExpanded] = useState(false)
   const iframeRef = useRef<HTMLIFrameElement>(null)
 
   // Generate random relationship lines for visual effect
@@ -253,118 +254,165 @@ function TweetCard({ tweet, index, isLast }: { tweet: Tweet; index: number; isLa
 
       {/* Tweet Card */}
       <div className="flex-1 tweet-card">
-        <div className="flex flex-col lg:flex-row gap-4">
-          {/* Tweet Content / Embed */}
-          <div className="flex-1 min-w-0">
-            {/* Author Row */}
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center flex-shrink-0">
-                  <span className="text-white text-sm font-bold">
-                    {(tweet.author || 'unknown')[0].toUpperCase()}
-                  </span>
-                </div>
-                <span className="font-semibold">@{tweet.author || 'unknown'}</span>
-              </div>
+        {/* Author Row - Always at top */}
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center flex-shrink-0">
+              <span className="text-white text-sm font-bold">
+                {(tweet.author || 'unknown')[0].toUpperCase()}
+              </span>
+            </div>
+            <span className="font-semibold">@{tweet.author || 'unknown'}</span>
+          </div>
+          
+          {/* Embed Toggle */}
+          <button
+            onClick={() => setShowEmbed(!showEmbed)}
+            className="btn btn-secondary text-xs px-3 py-1"
+          >
+            {showEmbed ? 'Show Text' : 'Show Embed'}
+          </button>
+        </div>
+
+        {/* Main Content Area */}
+        {showEmbed ? (
+          /* Full-width embed mode */
+          <div className="space-y-4">
+            {/* Embed Container - dark theme, scrollable, expandable */}
+            <div 
+              className="w-full rounded-xl overflow-hidden relative" 
+              style={{ 
+                background: 'rgb(22, 28, 37)',
+                maxHeight: isExpanded ? '800px' : '400px',
+                overflowY: 'auto'
+              }}
+            >
+              <iframe
+                ref={iframeRef}
+                src={`https://platform.twitter.com/embed/Tweet.html?d=true&id=${tweet.id}&theme=dark&width=550`}
+                className="w-full"
+                style={{ 
+                  border: 'none',
+                  minHeight: isExpanded ? '600px' : '300px',
+                  maxWidth: '100%'
+                }}
+                loading="lazy"
+              />
               
-              {/* Embed Toggle */}
+              {/* Expand/Collapse button */}
               <button
-                onClick={() => setShowEmbed(!showEmbed)}
-                className="btn btn-secondary text-xs px-3 py-1"
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="absolute bottom-2 right-2 btn btn-secondary text-xs px-2 py-1 opacity-80 hover:opacity-100"
+                style={{ zIndex: 10 }}
               >
-                {showEmbed ? 'Hide Embed' : 'Show Embed'}
+                {isExpanded ? '⬆ Collapse' : '⬇ Expand'}
               </button>
             </div>
-
-            {/* Tweet Embed or Text */}
-            {showEmbed ? (
-              <div className="rounded-lg overflow-hidden bg-white">
-                <iframe
-                  ref={iframeRef}
-                  src={`https://platform.twitter.com/embed/Tweet.html?d=true&id=${tweet.id}&theme=dark`}
-                  className="w-full min-h-[200px]"
-                  style={{ border: 'none' }}
-                  loading="lazy"
-                />
-              </div>
-            ) : (
-              <p className="text-[hsl(var(--foreground))] leading-relaxed whitespace-pre-wrap">
-                {tweet.text}
-              </p>
-            )}
-
-            {/* Hashtags */}
-            {tweet.hashtags && tweet.hashtags.length > 0 && (
-              <div className="flex gap-2 mt-4 flex-wrap">
-                {tweet.hashtags.map((tag) => (
-                  <span key={tag} className="badge badge-primary">
-                    #{tag}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {/* Tweet ID */}
-            <div className="mt-4 pt-3 border-t border-[hsl(var(--border))]">
-              <p className="text-xs text-[hsl(var(--muted-foreground))] font-mono">
-                ID: {tweet.id}
-              </p>
-            </div>
-          </div>
-
-          {/* Metadata Panel */}
-          <div className="lg:w-64 flex-shrink-0 space-y-3">
-            {/* Status */}
-            <div className="p-3 rounded-lg bg-[hsl(var(--secondary))]">
-              <p className="text-xs text-[hsl(var(--muted-foreground))] mb-1">Status</p>
+            
+            {/* Metadata below embed */}
+            <div className="flex flex-wrap gap-3 items-center">
               {tweet.truncated ? (
                 <span className="badge badge-warning">Truncated</span>
               ) : (
                 <span className="badge badge-primary">Full Text</span>
               )}
+              {tweet.hashtags && tweet.hashtags.length > 0 && tweet.hashtags.map((tag) => (
+                <span key={tag} className="badge badge-primary">
+                  #{tag}
+                </span>
+              ))}
+              <a
+                href={`https://x.com/i/status/${tweet.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-[hsl(var(--primary))] hover:underline ml-auto"
+              >
+                View on X →
+              </a>
             </div>
+          </div>
+        ) : (
+          /* Text mode with side metadata */
+          <div className="flex flex-col lg:flex-row gap-4">
+            {/* Tweet Content */}
+            <div className="flex-1 min-w-0">
+              <p className="text-[hsl(var(--foreground))] leading-relaxed whitespace-pre-wrap">
+                {tweet.text}
+              </p>
 
-            {/* Relationships */}
-            <div className="p-3 rounded-lg bg-[hsl(var(--secondary))]">
-              <p className="text-xs text-[hsl(var(--muted-foreground))] mb-2">Relationships</p>
-              <div className="space-y-1">
-                {tweet.hashtags && tweet.hashtags.length > 0 && (
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: relationshipColors.HAS_HASHTAG }} />
-                    <span className="text-sm">{tweet.hashtags.length} hashtags</span>
-                  </div>
-                )}
-                {tweet.themes && tweet.themes.length > 0 && (
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: relationshipColors.ABOUT_THEME }} />
-                    <span className="text-sm">{tweet.themes.length} themes</span>
-                  </div>
-                )}
-                {tweet.entities && tweet.entities.length > 0 && (
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: relationshipColors.MENTIONS_ENTITY }} />
-                    <span className="text-sm">{tweet.entities.length} entities</span>
-                  </div>
-                )}
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: relationshipColors.POSTED }} />
-                  <span className="text-sm">1 author</span>
+              {/* Hashtags */}
+              {tweet.hashtags && tweet.hashtags.length > 0 && (
+                <div className="flex gap-2 mt-4 flex-wrap">
+                  {tweet.hashtags.map((tag) => (
+                    <span key={tag} className="badge badge-primary">
+                      #{tag}
+                    </span>
+                  ))}
                 </div>
+              )}
+
+              {/* Tweet ID */}
+              <div className="mt-4 pt-3 border-t border-[hsl(var(--border))]">
+                <p className="text-xs text-[hsl(var(--muted-foreground))] font-mono">
+                  ID: {tweet.id}
+                </p>
               </div>
             </div>
 
-            {/* Bookmark Link */}
-            <a
-              href={`https://x.com/i/status/${tweet.id}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block p-3 rounded-lg bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] transition-colors"
-            >
-              <p className="text-xs text-[hsl(var(--muted-foreground))] mb-1">View on X</p>
-              <span className="text-sm text-[hsl(var(--primary))]">Open Tweet →</span>
-            </a>
+            {/* Metadata Panel - only in text mode */}
+            <div className="lg:w-64 flex-shrink-0 space-y-3">
+              {/* Status */}
+              <div className="p-3 rounded-lg bg-[hsl(var(--secondary))]">
+                <p className="text-xs text-[hsl(var(--muted-foreground))] mb-1">Status</p>
+                {tweet.truncated ? (
+                  <span className="badge badge-warning">Truncated</span>
+                ) : (
+                  <span className="badge badge-primary">Full Text</span>
+                )}
+              </div>
+
+              {/* Relationships */}
+              <div className="p-3 rounded-lg bg-[hsl(var(--secondary))]">
+                <p className="text-xs text-[hsl(var(--muted-foreground))] mb-2">Relationships</p>
+                <div className="space-y-1">
+                  {tweet.hashtags && tweet.hashtags.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: relationshipColors.HAS_HASHTAG }} />
+                      <span className="text-sm">{tweet.hashtags.length} hashtags</span>
+                    </div>
+                  )}
+                  {tweet.themes && tweet.themes.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: relationshipColors.ABOUT_THEME }} />
+                      <span className="text-sm">{tweet.themes.length} themes</span>
+                    </div>
+                  )}
+                  {tweet.entities && tweet.entities.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: relationshipColors.MENTIONS_ENTITY }} />
+                      <span className="text-sm">{tweet.entities.length} entities</span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: relationshipColors.POSTED }} />
+                    <span className="text-sm">1 author</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bookmark Link */}
+              <a
+                href={`https://x.com/i/status/${tweet.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block p-3 rounded-lg bg-[hsl(var(--secondary))] hover:bg-[hsl(var(--muted))] transition-colors"
+              >
+                <p className="text-xs text-[hsl(var(--muted-foreground))] mb-1">View on X</p>
+                <span className="text-sm text-[hsl(var(--primary))]">Open Tweet →</span>
+              </a>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )

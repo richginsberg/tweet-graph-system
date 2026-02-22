@@ -8,6 +8,9 @@ const inter = Inter({ subsets: ['latin'] })
 export const metadata: Metadata = {
   title: 'Tweet Graph',
   description: 'Visualize and explore your tweet graph database',
+  icons: {
+    icon: '/favicon.svg',
+  },
 }
 
 export default function RootLayout({
