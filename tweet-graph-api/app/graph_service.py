@@ -44,14 +44,18 @@ class GraphService:
             t.created_at = $created_at,
             t.bookmark_url = $bookmark_url,
             t.embedding = $embedding,
-            t.truncated = $truncated
+            t.truncated = $truncated,
+            t.author_username = $author_username
         
-        // Create author
+        // Create author relationship (by username or id)
         WITH t
-        OPTIONAL MATCH (u:User {id: $author_id})
-        FOREACH (_ IN CASE WHEN $author_id IS NOT NULL THEN [1] ELSE [] END |
+        FOREACH (_ IN CASE WHEN $author_username IS NOT NULL AND $author_username <> '' THEN [1] ELSE [] END |
+            MERGE (author:User {username: $author_username})
+            MERGE (author)-[:POSTED]->(t)
+        )
+        FOREACH (_ IN CASE WHEN $author_id IS NOT NULL AND $author_id <> '' THEN [1] ELSE [] END |
             MERGE (author:User {id: $author_id})
-            SET author.username = $author_username
+            SET author.username = coalesce(author.username, $author_username)
             MERGE (author)-[:POSTED]->(t)
         )
         
@@ -119,6 +123,55 @@ class GraphService:
                [(t)-[:MENTIONS]->(m) | m.username] as mentions
         """
         return await self.client.execute_single(query, {"id": tweet_id})
+    
+    async def update_tweet_author(self, tweet_id: str, author_username: str):
+        """Update tweet with author and create POSTED relationship"""
+        query = """
+        MATCH (t:Tweet {id: $id})
+        SET t.author_username = $author
+        WITH t
+        MERGE (u:User {username: $author})
+        MERGE (u)-[:POSTED]->(t)
+        RETURN t.id as id
+        """
+        return await self.client.execute_single(query, {"id": tweet_id, "author": author_username})
+    
+    async def update_tweet_full_text(self, tweet_id: str, full_text: str, 
+                                       hashtags: list = None, mentions: list = None,
+                                       author_username: str = None):
+        """Update tweet with full text from X API v2, set truncated=False"""
+        # Update tweet properties
+        query = """
+        MATCH (t:Tweet {id: $id})
+        SET t.text = $text, t.truncated = false
+        """
+        params = {"id": tweet_id, "text": full_text}
+        
+        await self.client.execute(query, params)
+        
+        # Update author if provided
+        if author_username:
+            await self.update_tweet_author(tweet_id, author_username)
+        
+        # Create hashtag relationships
+        if hashtags:
+            async with self.client.session() as session:
+                for tag in hashtags:
+                    await session.run("""
+                        MATCH (t:Tweet {id: $id})
+                        MERGE (h:Hashtag {tag: $tag})
+                        MERGE (t)-[:HAS_HASHTAG]->(h)
+                    """, id=tweet_id, tag=tag)
+        
+        # Create mention relationships
+        if mentions:
+            async with self.client.session() as session:
+                for mention in mentions:
+                    await session.run("""
+                        MATCH (t:Tweet {id: $id})
+                        MERGE (u:User {username: $mention})
+                        MERGE (t)-[:MENTIONS]->(u)
+                    """, id=tweet_id, mention=mention)
     
     async def vector_search(self, query: str, limit: int = 10) -> list:
         """Vector similarity search"""
@@ -235,8 +288,10 @@ class GraphService:
                 MATCH (t:Tweet)
                 OPTIONAL MATCH (u:User)-[:POSTED]->(t)
                 RETURN t.id as id, t.text as text, t.truncated as truncated,
-                       u.username as author,
-                       [(t)-[:HAS_HASHTAG]->(h) | h.tag] as hashtags
+                       coalesce(u.username, t.author_username) as author,
+                       [(t)-[:HAS_HASHTAG]->(h) | h.tag] as hashtags,
+                       [(t)-[:ABOUT_THEME]->(th) | th.name] as themes,
+                       [(t)-[:MENTIONS_ENTITY]->(e) | e.name] as entities
                 ORDER BY t.created_at DESC
                 LIMIT 100
             """)

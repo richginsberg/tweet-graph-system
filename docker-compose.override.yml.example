@@ -1,0 +1,15 @@
+# Docker Compose Override Example
+# Copy this file to docker-compose.override.yml and add your secrets
+# docker-compose.override.yml is gitignored and will NOT be committed
+
+services:
+  api:
+    environment:
+      # Add your real API keys here
+      - EMBEDDING_API_KEY=sk-your-real-key-here
+      - TWITTER_BEARER_TOKEN=your-real-twitter-token-here
+  
+  # Example: Change default passwords for production
+  # neo4j:
+  #   environment:
+  #     - NEO4J_AUTH=neo4j/your-secure-password

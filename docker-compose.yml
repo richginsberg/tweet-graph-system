@@ -43,6 +43,12 @@ services:
       - EMBEDDING_API_BASE=${EMBEDDING_API_BASE:-}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
       - EMBEDDING_DIMENSIONS=${EMBEDDING_DIMENSIONS:-1536}
+      # X API v2 for enriching truncated tweets
+      - TWITTER_BEARER_TOKEN=${TWITTER_BEARER_TOKEN:-}
+      # Neo4j
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-tweetgraph123}
       # Legacy support
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
     depends_on:

@@ -44,13 +44,21 @@ TRUNCATED_TAG = "__truncated__"
 
 def is_truncated(text: str) -> bool:
     """Check if tweet text appears to be truncated"""
+    text_stripped = text.strip()
+    
+    # Check for truncation indicators
     for indicator in TRUNCATION_INDICATORS:
         indicator = indicator.strip()
-        if indicator and indicator in text:
+        if indicator and text_stripped.endswith(indicator):
             return True
-    # Also check if text ends abruptly without punctuation
-    if text and text[-1] not in ".!?…\"')]" and len(text) > 280:
-        return True
+    
+    # Check if text seems cutoff (no punctuation at end for longer tweets)
+    # Only flag as truncated if it's a longer tweet that ends abruptly
+    if len(text_stripped) > 200:
+        last_char = text_stripped[-1]
+        if last_char not in ".!?…\"')]\n":
+            return True
+    
     return False
 
 
@@ -181,7 +189,7 @@ class BookmarkFetcher:
         bookmarks = await self.fetch_bookmarks_browser()
         
         # Find truncated tweets
-        truncated_ids = [b["id"] for b in bookmarks if b.get("is_truncated")]
+        truncated_ids = [b["id"] for b in bookmarks if b.get("truncated")]
         
         if not truncated_ids:
             logger.info("No truncated tweets found")
@@ -198,7 +206,7 @@ class BookmarkFetcher:
                 if bookmark["id"] in full_tweets:
                     full_data = full_tweets[bookmark["id"]]
                     bookmark["text"] = full_data["text"]
-                    bookmark["is_truncated"] = False
+                    bookmark["truncated"] = False  # FIXED: Now has full text
                     bookmark["fetch_method"] = "hybrid"
                     # Also update entities if they were incomplete
                     if not bookmark.get("hashtags"):
@@ -265,6 +273,23 @@ class BookmarkFetcher:
         
         urls = list(set(urls))[:5]
         
+        # Detect if tweet is actually truncated
+        text_stripped = text.strip()
+        is_truncated = False
+        
+        # Check for truncation indicators
+        for indicator in TRUNCATION_INDICATORS:
+            indicator = indicator.strip()
+            if indicator and text_stripped.endswith(indicator):
+                is_truncated = True
+                break
+        
+        # Also check if text seems cutoff (no punctuation at end for longer tweets)
+        if not is_truncated and len(text_stripped) > 50:
+            last_char = text_stripped[-1]
+            if last_char not in ".!?…\"')]\n":
+                is_truncated = True
+        
         return {
             "id": tweet_id,
             "text": text,
@@ -274,7 +299,7 @@ class BookmarkFetcher:
             "urls": urls,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "bookmark_url": f"https://x.com{href}",
-            "is_truncated": False,  # Will be set by caller
+            "truncated": is_truncated,  # Properly detected
             "fetch_method": "browser"  # Will be updated if hybrid
         }
     

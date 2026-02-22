@@ -60,12 +60,21 @@ A complete system for storing tweets in a graph database, performing semantic se
 git clone https://github.com/yourusername/tweet-graph-system.git
 cd tweet-graph-system
 
-# Configure your embedding provider
+# Configure your secrets (choose one method)
+
+# Method 1: .env file (recommended)
 cp .env.example .env
-echo "EMBEDDING_API_KEY=your-api-key" >> .env
+# Edit .env and add your API keys
+
+# Method 2: Docker override (keeps secrets outside .env)
+cp docker-compose.override.yml.example docker-compose.override.yml
+# Edit docker-compose.override.yml and add your secrets
+
+# Method 3: Environment variables (from .bashrc, CI/CD, etc.)
+# Just run docker-compose - it will pick them up automatically
 
 # Start services
-./start.sh
+docker-compose up -d
 
 # Test
 curl http://localhost:8000/health
@@ -78,7 +87,20 @@ curl http://localhost:8000/health
 - 📖 API Documentation: http://localhost:8000/docs
 
 **Default Credentials:**
-- Neo4j: `neo4j` / `tweetgraph123`
+- Neo4j: `neo4j` / `tweetgraph123` (change in production!)
+
+### Secret Management
+
+This project follows security best practices:
+
+| File | Purpose | Git Status |
+|------|---------|------------|
+| `.env.example` | Template with placeholders | ✅ Committed |
+| `.env` | Your real secrets | ❌ Gitignored |
+| `docker-compose.override.yml` | Local Docker overrides | ❌ Gitignored |
+| `docker-compose.yml` | Uses `${VAR:-default}` syntax | ✅ Committed (safe) |
+
+**Never commit real API keys or tokens!**
 
 ---
 

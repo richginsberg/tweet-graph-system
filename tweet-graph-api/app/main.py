@@ -133,24 +133,82 @@ async def get_related(request: RelatedRequest):
 
 @app.post("/bookmarks/sync")
 async def sync_bookmarks(request: BookmarkSyncRequest):
-    """Bulk import bookmarks with deduplication"""
+    """Bulk import bookmarks with auto-enrichment for truncated tweets"""
+    import os
+    from app.twitter_api import TwitterAPIClient
+    
     new_count = 0
     duplicate_count = 0
+    updated_count = 0
+    enriched_count = 0
+    
+    # Check if X API token is available for enrichment
+    twitter_token = os.environ.get("TWITTER_BEARER_TOKEN")
+    twitter_client = TwitterAPIClient(twitter_token) if twitter_token else None
     
     for tweet_data in request.bookmarks:
         tweet = TweetCreate(**tweet_data)
         existing = await graph_service.get_tweet(tweet.id)
         
         if not existing:
+            # New tweet - try to enrich if truncated
+            if tweet.truncated and twitter_client:
+                full_data = await twitter_client.get_tweet(tweet.id)
+                if full_data:
+                    tweet.text = full_data.get("text", tweet.text)
+                    tweet.truncated = False
+                    tweet.hashtags = full_data.get("hashtags", tweet.hashtags)
+                    tweet.mentions = full_data.get("mentions", tweet.mentions)
+                    tweet.author_username = full_data.get("author_username", tweet.author_username)
+                    enriched_count += 1
+            
             await graph_service.store_tweet(tweet)
             new_count += 1
         else:
+            # Duplicate - check if we should update
+            existing_truncated = existing.get("truncated", True)
+            incoming_truncated = tweet.truncated if tweet.truncated is not None else True
+            
+            # Update if: existing is truncated AND (incoming is not truncated OR we can enrich via API)
+            should_update = False
+            
+            if existing_truncated and not incoming_truncated:
+                # Incoming has full text, use it
+                should_update = True
+                await graph_service.update_tweet_full_text(
+                    tweet.id, 
+                    tweet.text,
+                    tweet.hashtags or [],
+                    tweet.mentions or [],
+                    tweet.author_username
+                )
+                updated_count += 1
+            elif existing_truncated and twitter_client:
+                # Try to enrich via X API
+                full_data = await twitter_client.get_tweet(tweet.id)
+                if full_data and full_data.get("text"):
+                    await graph_service.update_tweet_full_text(
+                        tweet.id, 
+                        full_data["text"],
+                        full_data.get("hashtags", []),
+                        full_data.get("mentions", []),
+                        full_data.get("author_username")
+                    )
+                    enriched_count += 1
+                    updated_count += 1
+            elif tweet.author_username and not existing.get("author"):
+                # Just update author if missing
+                await graph_service.update_tweet_author(tweet.id, tweet.author_username)
+                updated_count += 1
+            
             duplicate_count += 1
     
     return {
         "total_received": len(request.bookmarks),
         "new_stored": new_count,
-        "duplicates_skipped": duplicate_count
+        "duplicates_skipped": duplicate_count,
+        "updated": updated_count,
+        "enriched": enriched_count
     }
 
 @app.get("/stats")

@@ -151,6 +151,25 @@ class BookmarkFetcher:
         # Remove duplicates
         urls = list(set(urls))[:5]
         
+        # Detect if tweet is actually truncated
+        # Truncation indicators: ellipsis at end, cutoff mid-sentence, etc.
+        text_stripped = text.strip()
+        is_truncated = False
+        truncation_indicators = ["…", "...", " [more]", ">>"]
+        
+        # Check for truncation indicators at end
+        for indicator in truncation_indicators:
+            if text_stripped.endswith(indicator):
+                is_truncated = True
+                break
+        
+        # Also check if longer text seems cutoff (no punctuation at end)
+        # Only flag if it's a substantial tweet that ends abruptly
+        if not is_truncated and len(text_stripped) > 200:
+            last_char = text_stripped[-1]
+            if last_char not in ".!?…\"')]\n":
+                is_truncated = True
+        
         return {
             "id": tweet_id,
             "text": text,
@@ -160,7 +179,7 @@ class BookmarkFetcher:
             "urls": urls,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "bookmark_url": f"https://x.com{href}",
-            "truncated": True  # Browser fetches are always truncated
+            "truncated": is_truncated
         }
     
     async def sync_to_graph(self, bookmarks: List[Dict]) -> Dict:
