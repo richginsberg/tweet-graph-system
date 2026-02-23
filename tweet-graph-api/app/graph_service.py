@@ -234,11 +234,16 @@ class GraphService:
         """Get graph data for visualization"""
         async with self.client.session() as session:
             # Get all nodes with their types
+            # Use tweet.id for tweets, internal id for others
             nodes_result = await session.run("""
                 MATCH (n)
-                RETURN id(n) as internal_id, labels(n)[0] as type, 
-                       coalesce(n.id, n.name, n.tag, n.username, n.url, toString(id(n))) as name,
-                       properties(n) as props
+                RETURN CASE 
+                    WHEN labels(n)[0] = 'Tweet' THEN n.id 
+                    ELSE toString(id(n)) 
+                END as internal_id, 
+                labels(n)[0] as type, 
+                coalesce(n.id, n.name, n.tag, n.username, n.url, toString(id(n))) as name,
+                properties(n) as props
                 LIMIT 500
             """)
             
@@ -263,7 +268,10 @@ class GraphService:
             # Get all relationships
             links_result = await session.run("""
                 MATCH (a)-[r]->(b)
-                RETURN id(a) as source_id, id(b) as target_id, type(r) as rel_type
+                RETURN 
+                    CASE WHEN labels(a)[0] = 'Tweet' THEN a.id ELSE toString(id(a)) END as source_id,
+                    CASE WHEN labels(b)[0] = 'Tweet' THEN b.id ELSE toString(id(b)) END as target_id,
+                    type(r) as rel_type
                 LIMIT 1000
             """)
             
