@@ -27,7 +27,9 @@ def debug_log(msg):
     with open(DEBUG_LOG, "a") as f:
         f.write(f"[{datetime.datetime.now()}] {msg}\n")
         f.flush()
-SCREENSHOT_DIR = Path.home() / ".openclaw" / "workspace" / "tweet-graph-system" / "screenshots"
+
+# Screenshots directory - uses XDG_DATA_HOME or falls back to ~/.local/share
+SCREENSHOT_DIR = Path.home() / ".local" / "share" / "tweet-graph" / "screenshots"
 
 def get_accessible_ip():
     """Get Tailscale IP if available, otherwise LAN IP"""

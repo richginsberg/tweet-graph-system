@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
+import { fetchTweetsPaginated, PaginatedTweets } from '@/lib/api'
 
 interface Tweet {
   id: string
@@ -8,15 +9,12 @@ interface Tweet {
   author?: string
   hashtags?: string[]
   truncated?: boolean
-  themes?: string[]
-  entities?: string[]
-  relationships?: { type: string; target: string }[]
+  created_at?: string
 }
 
 interface FilterState {
   author: string
   hashtag: string
-  theme: string
   truncated: boolean | null
 }
 
@@ -41,48 +39,62 @@ const relationshipColors: Record<string, string> = {
   QUOTES: '#14b8a6',
 }
 
+const TWEETS_PER_PAGE = 50
+
 export default function TweetsPage() {
   const [tweets, setTweets] = useState<Tweet[]>([])
   const [filteredTweets, setFilteredTweets] = useState<Tweet[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [hasMore, setHasMore] = useState(true)
+  const [offset, setOffset] = useState(0)
+  const [total, setTotal] = useState(0)
   const [filters, setFilters] = useState<FilterState>({
     author: '',
     hashtag: '',
-    theme: '',
     truncated: null,
   })
   const [allHashtags, setAllHashtags] = useState<string[]>([])
   const [allAuthors, setAllAuthors] = useState<string[]>([])
 
+  // Initial load
   useEffect(() => {
-    async function fetchTweets() {
+    async function loadInitial() {
       try {
-        const response = await fetch(`${getApiUrl()}/tweets`)
-        if (!response.ok) throw new Error('Failed to fetch tweets')
-        const data = await response.json()
-        const tweetsData = data.tweets || data || []
-        setTweets(tweetsData)
-        setFilteredTweets(tweetsData)
+        setLoading(true)
+        const data = await fetchTweetsPaginated(TWEETS_PER_PAGE, 0)
+        setTweets(data.tweets)
+        setFilteredTweets(data.tweets)
+        setTotal(data.total)
+        setHasMore(data.has_more)
+        setOffset(data.tweets.length)
         
-        // Extract unique values for filters
-        const authors = new Set<string>()
-        const hashtags = new Set<string>()
-        tweetsData.forEach((t: Tweet) => {
-          if (t.author) authors.add(t.author)
-          t.hashtags?.forEach(h => hashtags.add(h))
-        })
-        setAllAuthors(Array.from(authors))
-        setAllHashtags(Array.from(hashtags))
+        // Extract unique values for filters from all tweets
+        // We need to fetch a sample for filters since we paginate
+        const sampleResponse = await fetch(`${getApiUrl()}/tweets?limit=200&offset=0`)
+        if (sampleResponse.ok) {
+          const sampleData = await sampleResponse.json()
+          const sampleTweets = sampleData.tweets || []
+          const authors = new Set<string>()
+          const hashtags = new Set<string>()
+          sampleTweets.forEach((t: Tweet) => {
+            if (t.author) authors.add(t.author)
+            t.hashtags?.forEach(h => hashtags.add(h))
+          })
+          setAllAuthors(Array.from(authors).sort())
+          setAllHashtags(Array.from(hashtags).sort())
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error')
       } finally {
         setLoading(false)
       }
     }
-    fetchTweets()
+    loadInitial()
   }, [])
 
+  // Apply filters to loaded tweets
   useEffect(() => {
     let filtered = tweets
     
@@ -99,8 +111,31 @@ export default function TweetsPage() {
     setFilteredTweets(filtered)
   }, [filters, tweets])
 
+  // Load more tweets
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return
+    
+    try {
+      setLoadingMore(true)
+      const data = await fetchTweetsPaginated(TWEETS_PER_PAGE, offset)
+      
+      // Merge new tweets, avoiding duplicates
+      const newTweets = data.tweets.filter(
+        newTweet => !tweets.some(existing => existing.id === newTweet.id)
+      )
+      
+      setTweets(prev => [...prev, ...newTweets])
+      setHasMore(data.has_more)
+      setOffset(prev => prev + newTweets.length)
+    } catch (err) {
+      console.error('Failed to load more:', err)
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [offset, hasMore, loadingMore, tweets])
+
   const clearFilters = () => {
-    setFilters({ author: '', hashtag: '', theme: '', truncated: null })
+    setFilters({ author: '', hashtag: '', truncated: null })
   }
 
   if (loading) {
@@ -128,7 +163,8 @@ export default function TweetsPage() {
       <div>
         <h1 className="text-3xl font-bold mb-2">Tweets</h1>
         <p className="text-[hsl(var(--muted-foreground))]">
-          {filteredTweets.length} of {tweets.length} tweets
+          {filteredTweets.length} of {total} tweets loaded
+          {hasMore && ' (more available)'}
         </p>
       </div>
 
@@ -182,22 +218,51 @@ export default function TweetsPage() {
         </div>
       </div>
 
-      {/* Tweets List with Git-Graph Style */}
+      {/* Tweets List */}
       {filteredTweets.length === 0 ? (
         <div className="card text-center py-16">
           <p className="text-[hsl(var(--muted-foreground))]">No tweets match your filters</p>
         </div>
       ) : (
-        <div className="space-y-4">
-          {filteredTweets.map((tweet, index) => (
-            <TweetCard 
-              key={tweet.id} 
-              tweet={tweet} 
-              index={index}
-              isLast={index === filteredTweets.length - 1}
-            />
-          ))}
-        </div>
+        <>
+          <div className="space-y-4">
+            {filteredTweets.map((tweet, index) => (
+              <TweetCard 
+                key={tweet.id} 
+                tweet={tweet} 
+                index={index}
+                isLast={index === filteredTweets.length - 1}
+              />
+            ))}
+          </div>
+
+          {/* Load More Button */}
+          {hasMore && (
+            <div className="flex justify-center py-8">
+              <button
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="btn btn-primary min-w-[200px]"
+              >
+                {loadingMore ? (
+                  <span className="flex items-center gap-2">
+                    <span className="spinner"></span>
+                    Loading...
+                  </span>
+                ) : (
+                  `Load More (${total - offset} remaining)`
+                )}
+              </button>
+            </div>
+          )}
+
+          {/* End of list */}
+          {!hasMore && tweets.length > 0 && (
+            <div className="text-center py-8 text-[hsl(var(--muted-foreground))]">
+              — All {total} tweets loaded —
+            </div>
+          )}
+        </>
       )}
     </div>
   )
@@ -206,25 +271,20 @@ export default function TweetsPage() {
 function TweetCard({ tweet, index, isLast }: { tweet: Tweet; index: number; isLast: boolean }) {
   const [showEmbed, setShowEmbed] = useState(false)
   const [isExpanded, setIsExpanded] = useState(false)
-  const iframeRef = useRef<HTMLIFrameElement>(null)
 
   // Generate random relationship lines for visual effect
   const relationships = [
     ...(tweet.hashtags?.map(h => ({ type: 'HAS_HASHTAG', target: h })) || []),
-    ...(tweet.themes?.map(t => ({ type: 'ABOUT_THEME', target: t })) || []),
   ]
   
-  // Pick 1-3 relationships to show as colored lines
   const shownRelationships = relationships.slice(0, 3)
 
   return (
     <div className="flex group">
       {/* Git-Graph Style Left Gutter */}
       <div className="relative flex-shrink-0 w-12 mr-4">
-        {/* Main vertical line */}
         <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-[hsl(var(--border))] -translate-x-1/2" />
         
-        {/* Connection lines */}
         {shownRelationships.map((rel, i) => (
           <div
             key={i}
@@ -236,7 +296,6 @@ function TweetCard({ tweet, index, isLast }: { tweet: Tweet; index: number; isLa
           />
         ))}
         
-        {/* Node dot */}
         <div 
           className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 bg-[hsl(var(--background))]"
           style={{ 
@@ -246,7 +305,6 @@ function TweetCard({ tweet, index, isLast }: { tweet: Tweet; index: number; isLa
           }}
         />
 
-        {/* Bottom fade for last item */}
         {isLast && (
           <div className="absolute left-1/2 bottom-0 -translate-x-1/2 w-4 h-8 bg-gradient-to-b from-transparent to-[hsl(var(--background))]" />
         )}
@@ -254,7 +312,6 @@ function TweetCard({ tweet, index, isLast }: { tweet: Tweet; index: number; isLa
 
       {/* Tweet Card */}
       <div className="flex-1 tweet-card">
-        {/* Author Row - Always at top */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center flex-shrink-0">
@@ -265,7 +322,6 @@ function TweetCard({ tweet, index, isLast }: { tweet: Tweet; index: number; isLa
             <span className="font-semibold">@{tweet.author || 'unknown'}</span>
           </div>
           
-          {/* Embed Toggle */}
           <button
             onClick={() => setShowEmbed(!showEmbed)}
             className="btn btn-secondary text-xs px-3 py-1"
@@ -274,11 +330,8 @@ function TweetCard({ tweet, index, isLast }: { tweet: Tweet; index: number; isLa
           </button>
         </div>
 
-        {/* Main Content Area */}
         {showEmbed ? (
-          /* Full-width embed mode */
           <div className="space-y-4">
-            {/* Embed Container - dark theme, scrollable, expandable */}
             <div 
               className="w-full rounded-xl overflow-hidden relative" 
               style={{ 
@@ -288,7 +341,6 @@ function TweetCard({ tweet, index, isLast }: { tweet: Tweet; index: number; isLa
               }}
             >
               <iframe
-                ref={iframeRef}
                 src={`https://platform.twitter.com/embed/Tweet.html?d=true&id=${tweet.id}&theme=dark&width=550`}
                 className="w-full"
                 style={{ 
@@ -299,7 +351,6 @@ function TweetCard({ tweet, index, isLast }: { tweet: Tweet; index: number; isLa
                 loading="lazy"
               />
               
-              {/* Expand/Collapse button */}
               <button
                 onClick={() => setIsExpanded(!isExpanded)}
                 className="absolute bottom-2 right-2 btn btn-secondary text-xs px-2 py-1 opacity-80 hover:opacity-100"
@@ -309,7 +360,6 @@ function TweetCard({ tweet, index, isLast }: { tweet: Tweet; index: number; isLa
               </button>
             </div>
             
-            {/* Metadata below embed */}
             <div className="flex flex-wrap gap-3 items-center">
               {tweet.truncated ? (
                 <span className="badge badge-warning">Truncated</span>
@@ -332,15 +382,12 @@ function TweetCard({ tweet, index, isLast }: { tweet: Tweet; index: number; isLa
             </div>
           </div>
         ) : (
-          /* Text mode with side metadata */
           <div className="flex flex-col lg:flex-row gap-4">
-            {/* Tweet Content */}
             <div className="flex-1 min-w-0">
               <p className="text-[hsl(var(--foreground))] leading-relaxed whitespace-pre-wrap">
                 {tweet.text}
               </p>
 
-              {/* Hashtags */}
               {tweet.hashtags && tweet.hashtags.length > 0 && (
                 <div className="flex gap-2 mt-4 flex-wrap">
                   {tweet.hashtags.map((tag) => (
@@ -351,7 +398,6 @@ function TweetCard({ tweet, index, isLast }: { tweet: Tweet; index: number; isLa
                 </div>
               )}
 
-              {/* Tweet ID */}
               <div className="mt-4 pt-3 border-t border-[hsl(var(--border))]">
                 <p className="text-xs text-[hsl(var(--muted-foreground))] font-mono">
                   ID: {tweet.id}
@@ -359,9 +405,8 @@ function TweetCard({ tweet, index, isLast }: { tweet: Tweet; index: number; isLa
               </div>
             </div>
 
-            {/* Metadata Panel - only in text mode */}
+            {/* Metadata Panel */}
             <div className="lg:w-64 flex-shrink-0 space-y-3">
-              {/* Status */}
               <div className="p-3 rounded-lg bg-[hsl(var(--secondary))]">
                 <p className="text-xs text-[hsl(var(--muted-foreground))] mb-1">Status</p>
                 {tweet.truncated ? (
@@ -371,7 +416,6 @@ function TweetCard({ tweet, index, isLast }: { tweet: Tweet; index: number; isLa
                 )}
               </div>
 
-              {/* Relationships */}
               <div className="p-3 rounded-lg bg-[hsl(var(--secondary))]">
                 <p className="text-xs text-[hsl(var(--muted-foreground))] mb-2">Relationships</p>
                 <div className="space-y-1">
@@ -381,18 +425,6 @@ function TweetCard({ tweet, index, isLast }: { tweet: Tweet; index: number; isLa
                       <span className="text-sm">{tweet.hashtags.length} hashtags</span>
                     </div>
                   )}
-                  {tweet.themes && tweet.themes.length > 0 && (
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: relationshipColors.ABOUT_THEME }} />
-                      <span className="text-sm">{tweet.themes.length} themes</span>
-                    </div>
-                  )}
-                  {tweet.entities && tweet.entities.length > 0 && (
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: relationshipColors.MENTIONS_ENTITY }} />
-                      <span className="text-sm">{tweet.entities.length} entities</span>
-                    </div>
-                  )}
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full" style={{ backgroundColor: relationshipColors.POSTED }} />
                     <span className="text-sm">1 author</span>
@@ -400,7 +432,6 @@ function TweetCard({ tweet, index, isLast }: { tweet: Tweet; index: number; isLa
                 </div>
               </div>
 
-              {/* Bookmark Link */}
               <a
                 href={`https://x.com/i/status/${tweet.id}`}
                 target="_blank"

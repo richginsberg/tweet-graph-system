@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import dynamic from 'next/dynamic'
 
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), { ssr: false })
@@ -9,6 +9,9 @@ interface GraphNode {
   id: string
   name: string
   type: string
+  properties?: Record<string, any>
+  x?: number
+  y?: number
 }
 
 interface GraphLink {
@@ -28,7 +31,7 @@ const getApiUrl = () => {
     const hostname = window.location.hostname
     return `${protocol}//${hostname}:8000`
   }
-  return process.env.API_URL || 'http://api:8000'
+  return 'http://api:8000'
 }
 
 const nodeColors: Record<string, string> = {
@@ -44,7 +47,9 @@ export default function GraphPage() {
   const [graphData, setGraphData] = useState<GraphData>({ nodes: [], links: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [hoverNode, setHoverNode] = useState<GraphNode | null>(null)
+  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [dimensions, setDimensions] = useState({ width: 800, height: 500 })
 
   useEffect(() => {
     async function fetchData() {
@@ -60,6 +65,22 @@ export default function GraphPage() {
       }
     }
     fetchData()
+  }, [])
+
+  // Update dimensions on resize
+  useEffect(() => {
+    const updateDimensions = () => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect()
+        setDimensions({
+          width: rect.width || 800,
+          height: Math.max(400, Math.min(600, window.innerHeight - 300))
+        })
+      }
+    }
+    updateDimensions()
+    window.addEventListener('resize', updateDimensions)
+    return () => window.removeEventListener('resize', updateDimensions)
   }, [])
 
   if (loading) {
@@ -96,71 +117,134 @@ export default function GraphPage() {
         {Object.entries(nodeColors).map(([type, color]) => (
           <div key={type} className="flex items-center gap-2">
             <div 
-              className="w-4 h-4 rounded-full shadow-lg" 
-              style={{ backgroundColor: color, boxShadow: `0 0 10px ${color}50` }}
+              className="w-3 h-3 rounded-full" 
+              style={{ backgroundColor: color }}
             />
             <span className="text-sm text-[hsl(var(--muted-foreground))]">{type}</span>
           </div>
         ))}
       </div>
 
-      {/* Graph */}
-      <div className="graph-container">
+      {/* Graph Container */}
+      <div 
+        ref={containerRef}
+        className="w-full rounded-xl overflow-hidden border border-[hsl(var(--border))]"
+        style={{ height: dimensions.height, background: 'hsl(var(--card))' }}
+      >
         {typeof window !== 'undefined' && graphData.nodes.length > 0 && (
           <ForceGraph2D
             graphData={graphData}
+            width={dimensions.width}
+            height={dimensions.height}
             nodeLabel={(node: any) => `${node.name} (${node.type})`}
             nodeColor={(node: any) => nodeColors[node.type] || '#666'}
             nodeVal={(node: any) => node.type === 'Tweet' ? 2 : 1}
             linkColor={() => '#444'}
             linkWidth={0.5}
-            linkDirectionalParticles={2}
-            linkDirectionalParticleWidth={1}
-            onNodeHover={(node: any) => setHoverNode(node)}
+            onNodeClick={(node: any) => setSelectedNode(node)}
             cooldownTicks={100}
-            nodeCanvasObject={(node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
-              const fontSize = 12 / globalScale
-              ctx.font = `${fontSize}px Sans-Serif`
-              ctx.fillStyle = nodeColors[node.type] || '#666'
-              ctx.beginPath()
-              ctx.arc(node.x, node.y, node.type === 'Tweet' ? 6 : 4, 0, 2 * Math.PI)
-              ctx.fill()
-              
-              // Glow effect
-              ctx.shadowColor = nodeColors[node.type] || '#666'
-              ctx.shadowBlur = 10
-              ctx.fill()
-              ctx.shadowBlur = 0
-            }}
           />
         )}
       </div>
 
+      {/* No data message */}
       {graphData.nodes.length === 0 && (
         <div className="card text-center py-16">
-          <div className="w-16 h-16 rounded-full bg-[hsl(var(--secondary))] mx-auto mb-4 flex items-center justify-center">
-            <svg className="w-8 h-8 text-[hsl(var(--muted-foreground))]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5" />
-            </svg>
-          </div>
           <p className="text-[hsl(var(--muted-foreground))]">No graph data available</p>
-          <p className="text-sm text-[hsl(var(--muted-foreground))] mt-2">Add some tweets to see the graph!</p>
         </div>
       )}
 
-      {/* Hover Info */}
-      {hoverNode && (
-        <div className="fixed bottom-6 right-6 card min-w-[200px]">
-          <div className="flex items-center gap-3">
-            <div 
-              className="w-3 h-3 rounded-full"
-              style={{ backgroundColor: nodeColors[hoverNode.type] || '#666' }}
-            />
-            <div>
-              <p className="font-semibold">{hoverNode.name}</p>
-              <p className="text-sm text-[hsl(var(--muted-foreground))]">{hoverNode.type}</p>
+      {/* Node Detail Card */}
+      {selectedNode && (
+        <div className="card space-y-4">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-3">
+              <div 
+                className="w-4 h-4 rounded-full"
+                style={{ backgroundColor: nodeColors[selectedNode.type] || '#666' }}
+              />
+              <div>
+                <span className="text-xs text-[hsl(var(--muted-foreground))] uppercase">
+                  {selectedNode.type}
+                </span>
+                <h3 className="font-semibold">
+                  {selectedNode.type === 'Tweet' ? 'Tweet' : selectedNode.name}
+                </h3>
+              </div>
             </div>
+            <button 
+              onClick={() => setSelectedNode(null)}
+              className="text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--foreground))] p-1"
+            >
+              ✕
+            </button>
           </div>
+
+          {/* Tweet content */}
+          {selectedNode.type === 'Tweet' && selectedNode.properties?.text && (
+            <div className="p-3 rounded-lg bg-[hsl(var(--secondary))]">
+              <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                {selectedNode.properties.text.length > 400 
+                  ? selectedNode.properties.text.slice(0, 400) + '...' 
+                  : selectedNode.properties.text}
+              </p>
+            </div>
+          )}
+
+          {/* Author */}
+          {selectedNode.properties?.author_username && (
+            <p className="text-sm">
+              <span className="text-[hsl(var(--muted-foreground))]">Author: </span>
+              <span className="text-[hsl(var(--primary))]">@{selectedNode.properties.author_username}</span>
+            </p>
+          )}
+
+          {/* Status */}
+          {selectedNode.type === 'Tweet' && (
+            <p className="text-sm">
+              <span className="text-[hsl(var(--muted-foreground))]">Status: </span>
+              {selectedNode.properties?.truncated ? (
+                <span className="text-yellow-500">Truncated</span>
+              ) : (
+                <span className="text-green-500">Full Text</span>
+              )}
+            </p>
+          )}
+
+          {/* Link */}
+          {selectedNode.properties?.bookmark_url && (
+            <a
+              href={selectedNode.properties.bookmark_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-primary w-full text-center text-sm"
+            >
+              View on X →
+            </a>
+          )}
+
+          {/* Hashtag/Entity links */}
+          {selectedNode.type === 'Hashtag' && (
+            <a
+              href={`https://x.com/search?q=%23${selectedNode.properties?.tag || selectedNode.name}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-primary w-full text-center text-sm"
+            >
+              Search #{selectedNode.properties?.tag || selectedNode.name} on X →
+            </a>
+          )}
+
+          {selectedNode.type === 'User' && (
+            <a
+              href={`https://x.com/${selectedNode.properties?.username || selectedNode.name}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-primary w-full text-center text-sm"
+            >
+              View Profile →
+            </a>
+          )}
         </div>
       )}
     </div>

@@ -99,6 +99,21 @@ async def store_tweet(tweet: TweetCreate):
         logger.error(f"Error storing tweet: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/tweets/all")
+async def get_all_tweets():
+    """Get all tweets (legacy - use /tweets for paginated)"""
+    return await graph_service.get_all_tweets()
+
+@app.get("/tweets")
+async def get_tweets_paginated(limit: int = 50, offset: int = 0):
+    """Get paginated tweets for lazy loading"""
+    return await graph_service.get_tweets_paginated(limit, offset)
+
+@app.get("/tweets/truncated")
+async def get_truncated_tweets():
+    """Get all truncated tweets that need enrichment"""
+    return await graph_service.get_truncated_tweets()
+
 @app.get("/tweets/{tweet_id}")
 async def get_tweet(tweet_id: str):
     """Get a tweet by ID"""
@@ -224,11 +239,6 @@ async def get_graph():
     """Get graph data for visualization (nodes and links)"""
     return await graph_service.get_graph_data()
 
-@app.get("/tweets")
-async def get_all_tweets():
-    """Get all tweets"""
-    return await graph_service.get_all_tweets()
-
 @app.get("/themes")
 async def get_themes():
     """Get all themes with tweet counts"""
@@ -246,6 +256,25 @@ async def get_config():
     # Don't expose API key
     config["api_key"] = "***" if config.get("api_key") else None
     return config
+
+@app.delete("/tweets/all")
+async def clear_all_tweets():
+    """Clear all tweets from the database (keeps other nodes)"""
+    result = await graph_service.clear_all_tweets()
+    return {
+        "message": "All tweets cleared",
+        "deleted": result.get("deleted", 0)
+    }
+
+@app.delete("/database/all")
+async def clear_database():
+    """Clear ALL data from the database - use with caution"""
+    result = await graph_service.clear_database()
+    return {
+        "message": "Database cleared",
+        "deleted_nodes": result.get("deleted_nodes", 0),
+        "deleted_relationships": result.get("deleted_relationships", 0)
+    }
 
 if __name__ == "__main__":
     import uvicorn

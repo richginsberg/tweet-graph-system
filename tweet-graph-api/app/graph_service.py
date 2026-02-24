@@ -3,6 +3,7 @@
 from app.neo4j_client import Neo4jClient
 from app.models import TweetCreate
 from app.embeddings import get_embedding
+from app.theme_extraction import extract_themes_and_entities
 import logging
 
 logger = logging.getLogger(__name__)
@@ -109,6 +110,27 @@ class GraphService:
             "reply_to": tweet.reply_to,
             "quote_of": tweet.quote_of
         })
+        
+        # Extract and create themes and entities
+        themes, entities = extract_themes_and_entities(tweet.text)
+        
+        if themes:
+            async with self.client.session() as session:
+                for theme in themes:
+                    await session.run("""
+                        MATCH (t:Tweet {id: $id})
+                        MERGE (th:Theme {name: $theme})
+                        MERGE (t)-[:ABOUT_THEME]->(th)
+                    """, id=tweet.id, theme=theme)
+        
+        if entities:
+            async with self.client.session() as session:
+                for entity in entities:
+                    await session.run("""
+                        MATCH (t:Tweet {id: $id})
+                        MERGE (e:Entity {name: $entity})
+                        MERGE (t)-[:MENTIONS_ENTITY]->(e)
+                    """, id=tweet.id, entity=entity)
         
         return result or {"id": tweet.id}
     
@@ -315,6 +337,45 @@ class GraphService:
                 })
             return tweets
     
+    async def get_tweets_paginated(self, limit: int = 50, offset: int = 0) -> dict:
+        """Get paginated tweets for lazy loading"""
+        async with self.client.session() as session:
+            # Get total count
+            count_result = await session.run("MATCH (t:Tweet) RETURN count(t) as total")
+            total = (await count_result.single())["total"]
+            
+            # Get paginated tweets
+            result = await session.run("""
+                MATCH (t:Tweet)
+                OPTIONAL MATCH (u:User)-[:POSTED]->(t)
+                RETURN t.id as id, t.text as text, t.truncated as truncated,
+                       coalesce(u.username, t.author_username) as author,
+                       [(t)-[:HAS_HASHTAG]->(h) | h.tag] as hashtags,
+                       t.created_at as created_at
+                ORDER BY t.created_at DESC
+                SKIP $offset
+                LIMIT $limit
+            """, offset=offset, limit=limit)
+            
+            tweets = []
+            async for record in result:
+                tweets.append({
+                    "id": record["id"],
+                    "text": record["text"],
+                    "truncated": record["truncated"],
+                    "author": record["author"],
+                    "hashtags": record["hashtags"] or [],
+                    "created_at": record["created_at"]
+                })
+            
+            return {
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+                "has_more": offset + limit < total,
+                "tweets": tweets
+            }
+    
     async def get_themes(self) -> dict:
         """Get all themes with tweet counts"""
         async with self.client.session() as session:
@@ -348,3 +409,61 @@ class GraphService:
                     "count": record["count"]
                 })
             return {"entities": entities}
+    
+    async def get_truncated_tweets(self) -> dict:
+        """Get all truncated tweets that need enrichment via X API"""
+        async with self.client.session() as session:
+            result = await session.run("""
+                MATCH (t:Tweet)
+                WHERE t.truncated = true OR t.truncated IS NULL
+                OPTIONAL MATCH (u:User)-[:POSTED]->(t)
+                RETURN t.id as id, t.text as text, t.bookmark_url as bookmark_url,
+                       coalesce(u.username, t.author_username) as author,
+                       t.created_at as created_at
+                ORDER BY t.created_at DESC
+            """)
+            
+            tweets = []
+            async for record in result:
+                tweets.append({
+                    "id": record["id"],
+                    "text": record["text"],
+                    "bookmark_url": record["bookmark_url"],
+                    "author": record["author"],
+                    "created_at": record["created_at"]
+                })
+            
+            return {
+                "count": len(tweets),
+                "tweets": tweets
+            }
+    
+    async def clear_all_tweets(self) -> dict:
+        """Clear all tweets (keeps Users, Hashtags, Themes, Entities, URLs)"""
+        async with self.client.session() as session:
+            result = await session.run("""
+                MATCH (t:Tweet)
+                WITH t, count(t) as total
+                DETACH DELETE t
+                RETURN total as deleted
+            """)
+            record = await result.single()
+            return {"deleted": record["deleted"] if record else 0}
+    
+    async def clear_database(self) -> dict:
+        """Clear ALL data from the database"""
+        async with self.client.session() as session:
+            # Count before deletion
+            nodes_result = await session.run("MATCH (n) RETURN count(n) as count")
+            rels_result = await session.run("MATCH ()-[r]->() RETURN count(r) as count")
+            
+            nodes_count = (await nodes_result.single())["count"]
+            rels_count = (await rels_result.single())["count"]
+            
+            # Delete all
+            await session.run("MATCH (n) DETACH DELETE n")
+            
+            return {
+                "deleted_nodes": nodes_count,
+                "deleted_relationships": rels_count
+            }

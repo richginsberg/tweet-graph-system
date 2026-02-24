@@ -502,6 +502,9 @@ environment:
 | `POST` | `/tweets` | Store a tweet |
 | `GET` | `/tweets/{id}` | Get tweet by ID |
 | `GET` | `/tweets` | Get all tweets |
+| `GET` | `/tweets/truncated` | Get truncated tweets needing enrichment |
+| `DELETE` | `/tweets/all` | Clear all tweets (keeps other nodes) |
+| `DELETE` | `/database/all` | Clear ALL data from database |
 | `POST` | `/search` | Vector similarity search |
 | `POST` | `/related` | Graph traversal query |
 | `POST` | `/bookmarks/sync` | Bulk import bookmarks |
@@ -765,6 +768,136 @@ crontab -e
 ```bash
 cat /var/log/tweet-graph.log
 ```
+
+---
+
+## 🤖 Automatic Processing
+
+**Good news:** Everything is automatic! When you sync bookmarks, the system automatically:
+
+1. **Extracts Themes** - AI, LLM, crypto, dev, business, etc. (keyword-based)
+2. **Extracts Entities** - Proper nouns like "Elon Musk", "OpenAI", "Sam Altman"
+3. **Extracts Hashtags** - From tweet text
+4. **Extracts Mentions** - @usernames
+5. **Generates Embeddings** - For semantic search
+6. **Detects Truncation** - Marks incomplete tweets
+
+No manual pipelines needed. Just run the bookmark sync and everything is populated.
+
+### Initial Setup (One-Time)
+
+```bash
+# 1. Start services
+docker-compose up -d
+
+# 2. Configure X/Twitter cookies (see Authentication section)
+
+# 3. Run initial full import
+cd bookmark-fetcher
+source venv/bin/activate
+python -m fetcher.main_playwright --full
+
+# 4. (Optional) Set up cron jobs for daily sync
+```
+
+### Daily Automation
+
+Once cron jobs are set up (see [Automated Maintenance](#automated-maintenance)), the system:
+- **Daily:** Fetches new bookmarks, extracts themes/entities, generates embeddings
+- **Monthly:** Enriches truncated tweets via X API v2 (if token configured)
+
+### What Gets Populated
+
+| Data | Source | Automatic? |
+|------|--------|------------|
+| Tweets | X/Twitter bookmarks | ✅ On sync |
+| Themes | Keyword extraction | ✅ On store |
+| Entities | Proper noun extraction | ✅ On store |
+| Hashtags | From tweet text | ✅ On store |
+| Mentions | @usernames | ✅ On store |
+| Embeddings | Configured provider | ✅ On store |
+| Truncation | Auto-detected | ✅ On store |
+
+---
+
+## Automated Maintenance
+
+This project includes cron scripts for automated maintenance. These are essential for:
+- **Daily incremental sync** - Keep bookmarks up to date
+- **Monthly truncation enrichment** - Fix truncated posts when X API credits reset
+
+### Available Scripts
+
+| Script | Purpose | Recommended Schedule |
+|--------|---------|---------------------|
+| `scripts/cron-daily-sync.sh` | Fetch new bookmarks | Daily at 6 AM |
+| `scripts/cron-monthly-enrich.sh` | Enrich truncated tweets via X API | 1st of month at 3 AM |
+
+### Setup (OpenClaw Gateway)
+
+If using OpenClaw, the easiest way is to use the built-in cron system:
+
+```bash
+# Daily bookmark sync (every day at 6 AM)
+openclaw cron add \
+  --name "tweet-graph-daily-sync" \
+  --schedule "0 6 * * *" \
+  --session-target main \
+  --payload '{"kind": "systemEvent", "text": "Run tweet graph daily sync: cd ~/.openclaw/workspace/workspace/tweet-graph-system && ./scripts/cron-daily-sync.sh"}'
+
+# Monthly enrichment (1st of each month at 3 AM)
+openclaw cron add \
+  --name "tweet-graph-monthly-enrich" \
+  --schedule "0 3 1 * *" \
+  --session-target main \
+  --payload '{"kind": "systemEvent", "text": "Run tweet graph monthly enrichment: cd ~/.openclaw/workspace/workspace/tweet-graph-system && TWITTER_BEARER_TOKEN=$TWITTER_BEARER_TOKEN ./scripts/cron-monthly-enrich.sh"}'
+```
+
+### Setup (Traditional Crontab)
+
+For standard Linux cron:
+
+```bash
+# Edit crontab
+crontab -e
+
+# Add these lines:
+# Daily sync at 6 AM
+0 6 * * * /path/to/tweet-graph-system/scripts/cron-daily-sync.sh >> /var/log/tweet-graph-sync.log 2>&1
+
+# Monthly enrichment on 1st at 3 AM
+0 3 1 * * TWITTER_BEARER_TOKEN=your_token /path/to/tweet-graph-system/scripts/cron-monthly-enrich.sh >> /var/log/tweet-graph-enrich.log 2>&1
+```
+
+### Query Truncated Tweets
+
+Check how many tweets need enrichment:
+
+```bash
+# Via API
+curl http://localhost:8000/tweets/truncated | jq '.count'
+
+# Detailed list
+curl http://localhost:8000/tweets/truncated | jq '.tweets[]'
+```
+
+### Clear Database (Fresh Import)
+
+To start fresh with a clean import:
+
+```bash
+# Clear all tweets (keeps users, hashtags, etc.)
+curl -X DELETE http://localhost:8000/tweets/all
+
+# Nuclear option: clear EVERYTHING
+curl -X DELETE http://localhost:8000/database/all
+```
+
+### Recommended Workflow
+
+1. **Initial Setup:** Clear database → Full import
+2. **Daily:** Cron runs `cron-daily-sync.sh` for incremental bookmarks
+3. **Monthly:** Cron runs `cron-monthly-enrich.sh` to fix truncated posts
 
 #### Fetch Modes & Truncated Post Handling
 
