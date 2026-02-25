@@ -29,11 +29,11 @@ COOKIES_FILE = "cookies.json"
 STATE_FILE = "state.json"
 
 # Scroll configuration
-MAX_SCROLLS_FULL = 200          # For full fetch
+MAX_SCROLLS_FULL = 500          # For full fetch (increased)
 MAX_SCROLLS_INCREMENTAL = 50    # For incremental
-SCROLL_DISTANCE = 3000          # Pixels to scroll
-SCROLL_DELAY = 2.5              # Seconds between scrolls
-NO_CHANGE_LIMIT = 5             # Stop after N scrolls with no new tweets
+SCROLL_DISTANCE = 5000          # Pixels to scroll (increased)
+SCROLL_DELAY = 3.0              # Seconds between scrolls (slightly longer)
+NO_CHANGE_LIMIT = 15            # Stop after N scrolls with no new tweets (increased)
 
 
 class BookmarkFetcher:
@@ -198,7 +198,23 @@ class BookmarkFetcher:
         if not text_elem:
             return {"id": tweet_id}
         
-        text = await text_elem.inner_text()
+        # Check for "Show more" link and click it to expand full text
+        show_more_link = await elem.query_selector('[data-testid="tweet-text-show-more-link"]')
+        if show_more_link:
+            try:
+                await show_more_link.click(timeout=2000)
+                await asyncio.sleep(0.3)  # Wait for text to expand
+                # Re-read the text element after expansion
+                text = await text_elem.inner_text()
+                is_truncated = False
+            except Exception as e:
+                # If click fails, mark as truncated
+                logger.debug(f"Could not expand tweet {tweet_id}: {e}")
+                text = await text_elem.inner_text()
+                is_truncated = True
+        else:
+            text = await text_elem.inner_text()
+            is_truncated = False
         
         # Get author username
         author_username = ""
@@ -228,22 +244,9 @@ class BookmarkFetcher:
         # Remove duplicates
         urls = list(set(urls))[:5]
         
-        # Detect if tweet is actually truncated
-        text_stripped = text.strip()
-        is_truncated = False
-        truncation_indicators = ["…", "...", " [more]", ">>"]
-        
-        # Check for truncation indicators at end
-        for indicator in truncation_indicators:
-            if text_stripped.endswith(indicator):
-                is_truncated = True
-                break
-        
-        # Also check if longer text seems cutoff (no punctuation at end)
-        if not is_truncated and len(text_stripped) > 200:
-            last_char = text_stripped[-1]
-            if last_char not in ".!?…\"')]\n":
-                is_truncated = True
+        # Note: is_truncated is already set above based on "Show more" link presence
+        # If we successfully expanded the tweet, is_truncated = False
+        # If expansion failed or link was present but couldn't click, is_truncated = True
         
         return {
             "id": tweet_id,

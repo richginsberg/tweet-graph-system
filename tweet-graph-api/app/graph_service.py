@@ -317,8 +317,9 @@ class GraphService:
             result = await session.run("""
                 MATCH (t:Tweet)
                 OPTIONAL MATCH (u:User)-[:POSTED]->(t)
+                WITH t, head(collect(u.username)) as author_username
                 RETURN t.id as id, t.text as text, t.truncated as truncated,
-                       coalesce(u.username, t.author_username) as author,
+                       coalesce(author_username, t.author_username) as author,
                        [(t)-[:HAS_HASHTAG]->(h) | h.tag] as hashtags,
                        [(t)-[:ABOUT_THEME]->(th) | th.name] as themes,
                        [(t)-[:MENTIONS_ENTITY]->(e) | e.name] as entities
@@ -348,8 +349,9 @@ class GraphService:
             result = await session.run("""
                 MATCH (t:Tweet)
                 OPTIONAL MATCH (u:User)-[:POSTED]->(t)
+                WITH t, head(collect(u.username)) as author_username
                 RETURN t.id as id, t.text as text, t.truncated as truncated,
-                       coalesce(u.username, t.author_username) as author,
+                       coalesce(author_username, t.author_username) as author,
                        [(t)-[:HAS_HASHTAG]->(h) | h.tag] as hashtags,
                        t.created_at as created_at
                 ORDER BY t.created_at DESC

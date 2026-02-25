@@ -60,7 +60,7 @@ export default function TweetsPage() {
   const [enrichingIds, setEnrichingIds] = useState<Set<string>>(new Set())
   const [enrichmentEnabled, setEnrichmentEnabled] = useState(false)
 
-  // Enrich a truncated tweet
+  // Enrich a truncated tweet via X API (paid tier)
   const enrichTweet = useCallback(async (tweetId: string) => {
     setEnrichingIds(prev => new Set(prev).add(tweetId))
     try {
@@ -83,6 +83,39 @@ export default function TweetsPage() {
       return result
     } catch (err) {
       console.error('Enrichment failed:', err)
+      throw err
+    } finally {
+      setEnrichingIds(prev => {
+        const next = new Set(prev)
+        next.delete(tweetId)
+        return next
+      })
+    }
+  }, [])
+
+  // Refresh truncated tweet via free oEmbed API
+  const refreshFromEmbed = useCallback(async (tweetId: string) => {
+    setEnrichingIds(prev => new Set(prev).add(tweetId))
+    try {
+      const response = await fetch(`${getApiUrl()}/tweets/${tweetId}/refresh-embed`, {
+        method: 'POST',
+      })
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.detail || 'Refresh failed')
+      }
+      const result = await response.json()
+      
+      // Update the tweet in the list
+      setTweets(prev => prev.map(t => 
+        t.id === tweetId 
+          ? { ...t, truncated: false, text: result.text || t.text, author: result.author_username || t.author }
+          : t
+      ))
+      
+      return result
+    } catch (err) {
+      console.error('Refresh from embed failed:', err)
       throw err
     } finally {
       setEnrichingIds(prev => {
@@ -305,6 +338,7 @@ export default function TweetsPage() {
                 index={index}
                 isLast={index === filteredTweets.length - 1}
                 enrichTweet={enrichmentEnabled ? enrichTweet : undefined}
+                refreshFromEmbed={refreshFromEmbed}
                 isEnriching={enrichingIds.has(tweet.id)}
               />
             ))}
@@ -347,12 +381,14 @@ function TweetCard({
   index, 
   isLast,
   enrichTweet,
+  refreshFromEmbed,
   isEnriching
 }: { 
   tweet: Tweet; 
   index: number; 
   isLast: boolean;
   enrichTweet?: (id: string) => Promise<any>;
+  refreshFromEmbed?: (id: string) => Promise<any>;
   isEnriching?: boolean;
 }) {
   const [showEmbed, setShowEmbed] = useState(false)
@@ -450,14 +486,24 @@ function TweetCard({
               {tweet.truncated ? (
                 <>
                   <span className="badge badge-warning">Truncated</span>
+                  {refreshFromEmbed && (
+                    <button
+                      onClick={() => refreshFromEmbed(tweet.id)}
+                      disabled={isEnriching}
+                      className="badge badge-warning hover:bg-yellow-600/30 cursor-pointer disabled:opacity-50"
+                      title="Fetch full text via free oEmbed API"
+                    >
+                      {isEnriching ? 'Refreshing...' : '↻ Refresh'}
+                    </button>
+                  )}
                   {enrichTweet && (
                     <button
                       onClick={() => enrichTweet(tweet.id)}
                       disabled={isEnriching}
-                      className="badge badge-warning hover:bg-yellow-600/30 cursor-pointer disabled:opacity-50"
-                      title="Fetch full text via X API"
+                      className="badge badge-secondary hover:bg-gray-600/30 cursor-pointer disabled:opacity-50"
+                      title="Fetch full text via X API (paid tier)"
                     >
-                      {isEnriching ? 'Enriching...' : '↻ Enrich'}
+                      API Enrich
                     </button>
                   )}
                 </>
@@ -510,20 +556,29 @@ function TweetCard({
                 {tweet.truncated ? (
                   <div className="space-y-2">
                     <span className="badge badge-warning">Truncated</span>
-                    {enrichTweet && (
+                    {refreshFromEmbed && (
                       <button
-                        onClick={() => enrichTweet(tweet.id)}
+                        onClick={() => refreshFromEmbed(tweet.id)}
                         disabled={isEnriching}
                         className="btn btn-warning text-xs w-full"
                       >
                         {isEnriching ? (
                           <span className="flex items-center justify-center gap-2">
                             <span className="spinner w-3 h-3"></span>
-                            Enriching...
+                            Refreshing...
                           </span>
                         ) : (
-                          '↻ Fetch Full Text via X'
+                          '↻ Refresh from Embed (free)'
                         )}
+                      </button>
+                    )}
+                    {enrichTweet && (
+                      <button
+                        onClick={() => enrichTweet(tweet.id)}
+                        disabled={isEnriching}
+                        className="btn btn-secondary text-xs w-full"
+                      >
+                        API Enrich (paid tier)
                       </button>
                     )}
                   </div>

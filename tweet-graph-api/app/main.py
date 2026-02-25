@@ -8,6 +8,7 @@ import logging
 from app.config import settings
 from app.neo4j_client import Neo4jClient
 from app.graph_service import GraphService
+from app.twitter_api import TwitterAPIClient, get_tweet_via_oembed
 from app.models import (
     TweetCreate, TweetResponse, SearchRequest, SearchResponse,
     RelatedRequest, RelatedResponse, BookmarkSyncRequest
@@ -118,13 +119,60 @@ async def get_truncated_tweets():
 
 @app.post("/tweets/{tweet_id}/enrich")
 async def enrich_tweet(tweet_id: str):
-    """Enrich a truncated tweet via X API v2"""
+    """Enrich a truncated tweet via X API v2 (requires paid tier)"""
+    if settings.TWITTER_API_TIER not in ("basic", "pro"):
+        raise HTTPException(status_code=403, detail="Enrichment requires Twitter API basic or pro tier")
     result = await graph_service.enrich_tweet_via_api(tweet_id, settings.TWITTER_BEARER_TOKEN)
     if result is None:
         raise HTTPException(status_code=400, detail="Tweet not found or already enriched")
     if result.get("error"):
         raise HTTPException(status_code=500, detail=result["error"])
     return result
+
+@app.post("/tweets/{tweet_id}/refresh-embed")
+async def refresh_tweet_from_embed(tweet_id: str):
+    """
+    Refresh truncated tweet via free oEmbed API
+    
+    This endpoint works without any API key by fetching the tweet's
+    embed HTML and extracting the full text from it.
+    """
+    # First check if tweet exists
+    existing = await graph_service.get_tweet(tweet_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Tweet not found")
+    
+    # Fetch via oEmbed
+    result = await get_tweet_via_oembed(tweet_id)
+    if not result or not result.get("text"):
+        raise HTTPException(status_code=502, detail="Could not fetch tweet from oEmbed API")
+    
+    full_text = result["text"]
+    author_username = result.get("author_username") or existing.get("author")
+    
+    # Extract hashtags and mentions from the full text
+    import re
+    hashtags = list(set(re.findall(r'#(\w+)', full_text)))
+    mentions = list(set(re.findall(r'@(\w+)', full_text)))
+    
+    # Update the tweet
+    await graph_service.update_tweet_full_text(
+        tweet_id,
+        full_text,
+        hashtags,
+        mentions,
+        author_username
+    )
+    
+    return {
+        "id": tweet_id,
+        "text": full_text,
+        "author_username": author_username,
+        "hashtags": hashtags,
+        "mentions": mentions,
+        "truncated": False,
+        "message": "Tweet refreshed from embed"
+    }
 
 @app.post("/tweets/enrich-all")
 async def enrich_all_truncated():
@@ -168,7 +216,6 @@ async def get_related(request: RelatedRequest):
 async def sync_bookmarks(request: BookmarkSyncRequest):
     """Bulk import bookmarks with auto-enrichment for truncated tweets"""
     import os
-    from app.twitter_api import TwitterAPIClient
     
     new_count = 0
     duplicate_count = 0
