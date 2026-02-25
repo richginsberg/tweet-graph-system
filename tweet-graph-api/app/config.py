@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     
     # X/Twitter API (for enrichment)
     TWITTER_BEARER_TOKEN: str = ""
+    TWITTER_API_TIER: str = "free"  # free, basic, pro
     
     # Embedding Provider (OpenAI-compatible)
     EMBEDDING_PROVIDER: str = "openai"  # openai, deepseek, together, groq, ollama, local

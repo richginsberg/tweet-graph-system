@@ -58,6 +58,7 @@ export default function TweetsPage() {
   const [allHashtags, setAllHashtags] = useState<string[]>([])
   const [allAuthors, setAllAuthors] = useState<string[]>([])
   const [enrichingIds, setEnrichingIds] = useState<Set<string>>(new Set())
+  const [enrichmentEnabled, setEnrichmentEnabled] = useState(false)
 
   // Enrich a truncated tweet
   const enrichTweet = useCallback(async (tweetId: string) => {
@@ -111,6 +112,22 @@ export default function TweetsPage() {
       console.error('Batch enrichment failed:', err)
       throw err
     }
+  }, [])
+
+  // Check enrichment capability on mount
+  useEffect(() => {
+    async function checkEnrichment() {
+      try {
+        const response = await fetch(`${getApiUrl()}/health`)
+        if (response.ok) {
+          const data = await response.json()
+          setEnrichmentEnabled(data.enrichment_enabled === true)
+        }
+      } catch (err) {
+        console.error('Failed to check enrichment status:', err)
+      }
+    }
+    checkEnrichment()
   }, [])
 
   // Initial load
@@ -287,7 +304,7 @@ export default function TweetsPage() {
                 tweet={tweet} 
                 index={index}
                 isLast={index === filteredTweets.length - 1}
-                enrichTweet={enrichTweet}
+                enrichTweet={enrichmentEnabled ? enrichTweet : undefined}
                 isEnriching={enrichingIds.has(tweet.id)}
               />
             ))}

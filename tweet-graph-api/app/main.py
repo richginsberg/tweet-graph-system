@@ -68,7 +68,9 @@ async def health():
         "status": "healthy",
         "neo4j": neo4j_client.connected,
         "embedding_provider": settings.EMBEDDING_PROVIDER,
-        "embedding_model": settings.get_embedding_config()["model"]
+        "embedding_model": settings.get_embedding_config()["model"],
+        "twitter_api_tier": settings.TWITTER_API_TIER,
+        "enrichment_enabled": settings.TWITTER_API_TIER in ("basic", "pro")
     }
 
 @app.post("/tweets", response_model=TweetResponse)
