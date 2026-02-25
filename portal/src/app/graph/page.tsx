@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), { ssr: false })
@@ -49,7 +49,16 @@ export default function GraphPage() {
   const [error, setError] = useState<string | null>(null)
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const [dimensions, setDimensions] = useState({ width: 800, height: 500 })
+  const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null)
+
+  const measureContainer = useCallback(() => {
+    if (containerRef.current) {
+      const { width, height } = containerRef.current.getBoundingClientRect()
+      if (width > 0 && height > 0) {
+        setDimensions({ width: Math.floor(width), height: Math.floor(height) })
+      }
+    }
+  }, [])
 
   useEffect(() => {
     async function fetchData() {
@@ -67,21 +76,21 @@ export default function GraphPage() {
     fetchData()
   }, [])
 
-  // Update dimensions on resize
+  // Measure on mount and resize
   useEffect(() => {
-    const updateDimensions = () => {
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect()
-        setDimensions({
-          width: rect.width || 800,
-          height: Math.max(400, Math.min(600, window.innerHeight - 300))
-        })
-      }
+    measureContainer()
+    window.addEventListener('resize', measureContainer)
+    return () => window.removeEventListener('resize', measureContainer)
+  }, [measureContainer])
+
+  // Re-measure after loading completes
+  useEffect(() => {
+    if (!loading) {
+      // Small delay to ensure layout is complete
+      const timer = setTimeout(measureContainer, 50)
+      return () => clearTimeout(timer)
     }
-    updateDimensions()
-    window.addEventListener('resize', updateDimensions)
-    return () => window.removeEventListener('resize', updateDimensions)
-  }, [])
+  }, [loading, measureContainer])
 
   if (loading) {
     return (
@@ -126,12 +135,12 @@ export default function GraphPage() {
       </div>
 
       {/* Graph Container */}
-      <div 
+      <div
         ref={containerRef}
-        className="w-full rounded-xl overflow-hidden border border-[hsl(var(--border))]"
-        style={{ height: dimensions.height, background: 'hsl(var(--card))' }}
+        className="graph-canvas-wrapper w-full rounded-xl overflow-hidden border border-[hsl(var(--border))] relative"
+        style={{ height: '70vh', minHeight: '400px', background: 'hsl(var(--card))' }}
       >
-        {typeof window !== 'undefined' && graphData.nodes.length > 0 && (
+        {typeof window !== 'undefined' && dimensions && graphData.nodes.length > 0 && (
           <ForceGraph2D
             graphData={graphData}
             width={dimensions.width}

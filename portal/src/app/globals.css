@@ -59,6 +59,17 @@ body {
   overflow: hidden;
 }
 
+/* ForceGraph canvas containment - prevents overflow */
+.graph-canvas-wrapper {
+  position: relative;
+  contain: layout style;
+  overflow: hidden;
+}
+
+.graph-canvas-wrapper canvas {
+  display: block !important;
+}
+
 /* Card styles */
 .card {
   background: hsl(var(--card));

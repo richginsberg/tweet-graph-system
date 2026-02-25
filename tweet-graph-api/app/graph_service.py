@@ -467,3 +467,107 @@ class GraphService:
                 "deleted_nodes": nodes_count,
                 "deleted_relationships": rels_count
             }
+    
+    async def enrich_tweet_via_api(self, tweet_id: str, bearer_token: str) -> dict:
+        """Enrich a truncated tweet via X API v2"""
+        if not bearer_token:
+            return {"error": "TWITTER_BEARER_TOKEN not configured"}
+        
+        import httpx
+        
+        # Fetch from X API v2
+        url = f"https://api.twitter.com/2/tweets/{tweet_id}"
+        params = {
+            "tweet.fields": "created_at,author_id,entities,text",
+            "expansions": "author_id",
+            "user.fields": "username"
+        }
+        headers = {"Authorization": f"Bearer {bearer_token}"}
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(url, params=params, headers=headers, timeout=30.0)
+                
+                if resp.status_code == 429:
+                    return {"error": "Rate limited - try again later"}
+                
+                if resp.status_code == 404:
+                    return {"error": "Tweet not found or deleted"}
+                
+                if resp.status_code != 200:
+                    return {"error": f"API error: {resp.status_code}"}
+                
+                data = resp.json()
+                
+                if "data" not in data:
+                    return {"error": "No data returned from X API"}
+                
+                tweet_data = data["data"]
+                full_text = tweet_data.get("text", "")
+                entities = tweet_data.get("entities", {})
+                
+                hashtags = [h["tag"] for h in entities.get("hashtags", [])]
+                mentions = [m["username"] for m in entities.get("mentions", [])]
+                
+                # Get author username
+                author = ""
+                if "includes" in data and "users" in data["includes"]:
+                    for user in data["includes"]["users"]:
+                        if user["id"] == tweet_data.get("author_id"):
+                            author = user.get("username", "")
+                            break
+                
+                # Update in database
+                await self.update_tweet_full_text(tweet_id, full_text, hashtags, mentions, author)
+                
+                # Mark as not truncated
+                async with self.client.session() as session:
+                    await session.run("""
+                        MATCH (t:Tweet {id: $id})
+                        SET t.truncated = false
+                    """, id=tweet_id)
+                
+                return {
+                    "id": tweet_id,
+                    "enriched": True,
+                    "text": full_text[:100] + "..." if len(full_text) > 100 else full_text,
+                    "author": author,
+                    "hashtags": hashtags,
+                    "mentions": mentions
+                }
+                
+        except Exception as e:
+            logger.error(f"Enrichment error for {tweet_id}: {e}")
+            return {"error": str(e)}
+    
+    async def enrich_all_truncated(self, bearer_token: str) -> dict:
+        """Enrich all truncated tweets via X API v2 (batch)"""
+        if not bearer_token:
+            return {"error": "TWITTER_BEARER_TOKEN not configured", "enriched": 0}
+        
+        # Get truncated tweets
+        truncated = await self.get_truncated_tweets()
+        tweets = truncated.get("tweets", [])
+        
+        if not tweets:
+            return {"message": "No truncated tweets to enrich", "enriched": 0, "total": 0}
+        
+        enriched = 0
+        failed = 0
+        errors = []
+        
+        for tweet in tweets[:100]:  # Limit to 100 per batch
+            result = await self.enrich_tweet_via_api(tweet["id"], bearer_token)
+            if result.get("enriched"):
+                enriched += 1
+            else:
+                failed += 1
+                if result.get("error"):
+                    errors.append({"id": tweet["id"], "error": result["error"]})
+        
+        return {
+            "enriched": enriched,
+            "failed": failed,
+            "total": len(tweets),
+            "errors": errors[:10]  # Limit error list
+        }

@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     NEO4J_USER: str = "neo4j"
     NEO4J_PASSWORD: str = "tweetgraph123"
     
+    # X/Twitter API (for enrichment)
+    TWITTER_BEARER_TOKEN: str = ""
+    
     # Embedding Provider (OpenAI-compatible)
     EMBEDDING_PROVIDER: str = "openai"  # openai, deepseek, together, groq, ollama, local
     EMBEDDING_API_KEY: str = ""

@@ -57,6 +57,61 @@ export default function TweetsPage() {
   })
   const [allHashtags, setAllHashtags] = useState<string[]>([])
   const [allAuthors, setAllAuthors] = useState<string[]>([])
+  const [enrichingIds, setEnrichingIds] = useState<Set<string>>(new Set())
+
+  // Enrich a truncated tweet
+  const enrichTweet = useCallback(async (tweetId: string) => {
+    setEnrichingIds(prev => new Set(prev).add(tweetId))
+    try {
+      const response = await fetch(`${getApiUrl()}/tweets/${tweetId}/enrich`, {
+        method: 'POST',
+      })
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.detail || 'Enrichment failed')
+      }
+      const result = await response.json()
+      
+      // Update the tweet in the list
+      setTweets(prev => prev.map(t => 
+        t.id === tweetId 
+          ? { ...t, truncated: false, text: result.text || t.text, author: result.author || t.author }
+          : t
+      ))
+      
+      return result
+    } catch (err) {
+      console.error('Enrichment failed:', err)
+      throw err
+    } finally {
+      setEnrichingIds(prev => {
+        const next = new Set(prev)
+        next.delete(tweetId)
+        return next
+      })
+    }
+  }, [])
+
+  // Enrich all truncated tweets
+  const enrichAllTruncated = useCallback(async () => {
+    try {
+      const response = await fetch(`${getApiUrl()}/tweets/enrich-all`, {
+        method: 'POST',
+      })
+      if (!response.ok) throw new Error('Batch enrichment failed')
+      const result = await response.json()
+      
+      // Reload tweets to get updated status
+      const data = await fetchTweetsPaginated(TWEETS_PER_PAGE, 0)
+      setTweets(data.tweets)
+      setTotal(data.total)
+      
+      return result
+    } catch (err) {
+      console.error('Batch enrichment failed:', err)
+      throw err
+    }
+  }, [])
 
   // Initial load
   useEffect(() => {
@@ -232,6 +287,8 @@ export default function TweetsPage() {
                 tweet={tweet} 
                 index={index}
                 isLast={index === filteredTweets.length - 1}
+                enrichTweet={enrichTweet}
+                isEnriching={enrichingIds.has(tweet.id)}
               />
             ))}
           </div>
@@ -268,7 +325,19 @@ export default function TweetsPage() {
   )
 }
 
-function TweetCard({ tweet, index, isLast }: { tweet: Tweet; index: number; isLast: boolean }) {
+function TweetCard({ 
+  tweet, 
+  index, 
+  isLast,
+  enrichTweet,
+  isEnriching
+}: { 
+  tweet: Tweet; 
+  index: number; 
+  isLast: boolean;
+  enrichTweet?: (id: string) => Promise<any>;
+  isEnriching?: boolean;
+}) {
   const [showEmbed, setShowEmbed] = useState(false)
   const [isExpanded, setIsExpanded] = useState(false)
 
@@ -362,7 +431,19 @@ function TweetCard({ tweet, index, isLast }: { tweet: Tweet; index: number; isLa
             
             <div className="flex flex-wrap gap-3 items-center">
               {tweet.truncated ? (
-                <span className="badge badge-warning">Truncated</span>
+                <>
+                  <span className="badge badge-warning">Truncated</span>
+                  {enrichTweet && (
+                    <button
+                      onClick={() => enrichTweet(tweet.id)}
+                      disabled={isEnriching}
+                      className="badge badge-warning hover:bg-yellow-600/30 cursor-pointer disabled:opacity-50"
+                      title="Fetch full text via X API"
+                    >
+                      {isEnriching ? 'Enriching...' : '↻ Enrich'}
+                    </button>
+                  )}
+                </>
               ) : (
                 <span className="badge badge-primary">Full Text</span>
               )}
@@ -410,7 +491,25 @@ function TweetCard({ tweet, index, isLast }: { tweet: Tweet; index: number; isLa
               <div className="p-3 rounded-lg bg-[hsl(var(--secondary))]">
                 <p className="text-xs text-[hsl(var(--muted-foreground))] mb-1">Status</p>
                 {tweet.truncated ? (
-                  <span className="badge badge-warning">Truncated</span>
+                  <div className="space-y-2">
+                    <span className="badge badge-warning">Truncated</span>
+                    {enrichTweet && (
+                      <button
+                        onClick={() => enrichTweet(tweet.id)}
+                        disabled={isEnriching}
+                        className="btn btn-warning text-xs w-full"
+                      >
+                        {isEnriching ? (
+                          <span className="flex items-center justify-center gap-2">
+                            <span className="spinner w-3 h-3"></span>
+                            Enriching...
+                          </span>
+                        ) : (
+                          '↻ Fetch Full Text via X'
+                        )}
+                      </button>
+                    )}
+                  </div>
                 ) : (
                   <span className="badge badge-primary">Full Text</span>
                 )}

@@ -114,6 +114,22 @@ async def get_truncated_tweets():
     """Get all truncated tweets that need enrichment"""
     return await graph_service.get_truncated_tweets()
 
+@app.post("/tweets/{tweet_id}/enrich")
+async def enrich_tweet(tweet_id: str):
+    """Enrich a truncated tweet via X API v2"""
+    result = await graph_service.enrich_tweet_via_api(tweet_id, settings.TWITTER_BEARER_TOKEN)
+    if result is None:
+        raise HTTPException(status_code=400, detail="Tweet not found or already enriched")
+    if result.get("error"):
+        raise HTTPException(status_code=500, detail=result["error"])
+    return result
+
+@app.post("/tweets/enrich-all")
+async def enrich_all_truncated():
+    """Enrich all truncated tweets via X API v2 (batch)"""
+    result = await graph_service.enrich_all_truncated(settings.TWITTER_BEARER_TOKEN)
+    return result
+
 @app.get("/tweets/{tweet_id}")
 async def get_tweet(tweet_id: str):
     """Get a tweet by ID"""
