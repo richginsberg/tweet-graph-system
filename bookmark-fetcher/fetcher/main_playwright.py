@@ -109,7 +109,7 @@ class BookmarkFetcher:
             
             page = await context.new_page()
             logger.info(f"Navigating to {BOOKMARKS_URL}")
-            await page.goto(BOOKMARKS_URL, wait_until="networkidle")
+            await page.goto(BOOKMARKS_URL, wait_until="networkidle", timeout=60000)
             
             await page.wait_for_selector('[data-testid="tweet"]', timeout=30000)
             logger.info("Tweets loaded, starting scroll cycle...")
