@@ -31,6 +31,12 @@ async def lifespan(app: FastAPI):
     logger.info(f"Embedding Model: {embedding_config['model']}")
     logger.info(f"Embedding Dimensions: {embedding_config['dimensions']}")
     
+    # Initialize NER provider
+    from app.theme_extraction import init_ner_provider
+    ner_config = settings.get_ner_config()
+    init_ner_provider(ner_config["provider"], **{k: v for k, v in ner_config.items() if k != "provider"})
+    logger.info(f"NER Provider: {settings.NER_PROVIDER}")
+    
     neo4j_client = Neo4jClient(
         uri=settings.NEO4J_URI,
         user=settings.NEO4J_USER,
@@ -70,6 +76,7 @@ async def health():
         "neo4j": neo4j_client.connected,
         "embedding_provider": settings.EMBEDDING_PROVIDER,
         "embedding_model": settings.get_embedding_config()["model"],
+        "ner_provider": settings.NER_PROVIDER,
         "twitter_api_tier": settings.TWITTER_API_TIER,
         "enrichment_enabled": settings.TWITTER_API_TIER in ("basic", "pro")
     }
@@ -206,6 +213,18 @@ async def embed_all_tweets(batch_size: int = 50):
 async def enrich_all_truncated():
     """Enrich all truncated tweets via X API v2 (batch)"""
     result = await graph_service.enrich_all_truncated(settings.TWITTER_BEARER_TOKEN)
+    return result
+
+@app.post("/entities/reextract")
+async def reextract_entities(batch_size: int = 50):
+    """
+    Re-extract entities for all tweets using current NER provider
+    
+    This clears old entity relationships and re-extracts using the configured
+    NER provider (regex, spacy-sm, spacy-lg, gliner, etc.)
+    """
+    result = await graph_service.reextract_entities(batch_size)
+    result["ner_provider"] = settings.NER_PROVIDER
     return result
 
 @app.get("/tweets/{tweet_id}")

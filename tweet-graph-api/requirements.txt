@@ -7,3 +7,7 @@ pydantic>=2.5.0
 pydantic-settings>=2.1.0
 httpx>=0.25.0
 python-dotenv>=1.0.0
+
+# NER (Named Entity Recognition) - optional
+# Uncomment if using spaCy NER provider
+spacy>=3.7.0

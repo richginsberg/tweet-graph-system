@@ -432,6 +432,89 @@ EMBEDDING_MODEL=your-model
 EMBEDDING_DIMENSIONS=1536
 ```
 
+### NER Providers (Named Entity Recognition)
+
+The system extracts named entities (people, organizations, locations) from tweets. Choose a provider based on your hardware:
+
+| Provider | Size | Speed | Accuracy | Zero-shot | Best For |
+|----------|------|-------|----------|-----------|----------|
+| **regex** | 0MB | Instant | Low | ❌ | Low-end CPU (default) |
+| **spacy-sm** | ~13MB | Fast | Good | ❌ | Most users |
+| **spacy-lg** | ~700MB | Fast | Better | ❌ | Better accuracy |
+| **gliner-small** | ~120MB | Medium | Good | ✅ | Custom entity types |
+| **gliner-medium** | ~300MB | Slower | Better | ✅ | Zero-shot NER |
+| **minibase** | ~369MB | 323ms | 91.5% P, 100% R | ❌ | High recall |
+| **disabled** | 0MB | Instant | N/A | N/A | Disable extraction |
+
+#### Regex (Default - No Dependencies)
+
+Works on any CPU, no installation required:
+
+```bash
+NER_PROVIDER=regex
+```
+
+> ⚠️ **Note:** Regex has many false positives (any capitalized word). For better accuracy, use spaCy.
+
+#### spaCy (Recommended)
+
+Fast and accurate entity extraction:
+
+```bash
+# Install spaCy and download model
+pip install spacy
+python -m spacy download en_core_web_sm
+
+# Configure
+NER_PROVIDER=spacy-sm   # Fast, ~13MB
+# NER_PROVIDER=spacy-lg # More accurate, ~700MB
+```
+
+**Entity types extracted:** PERSON, ORG, GPE, PRODUCT, EVENT, LOC
+
+#### GLiNER (Zero-shot NER)
+
+Extract any entity type with natural language prompts:
+
+```bash
+# Install GLiNER
+pip install gliner
+
+# Configure
+NER_PROVIDER=gliner-small   # ~120MB
+# NER_PROVIDER=gliner-medium # ~300MB, better accuracy
+
+# Optional: Custom entity labels
+NER_LABELS=person,organization,company,product,technology,location,event
+```
+
+**Advantages:**
+- Extract any entity type (not limited to predefined categories)
+- Zero-shot: no training needed
+- Good for domain-specific entities
+
+#### Minibase (High Recall)
+
+High precision (91.5%) and perfect recall (100%):
+
+```bash
+# Install transformers
+pip install transformers torch
+
+# Configure
+NER_PROVIDER=minibase
+```
+
+**Entity types:** PER, ORG, LOC, MISC
+
+#### Disable Entity Extraction
+
+To disable entity extraction entirely:
+
+```bash
+NER_PROVIDER=disabled
+```
+
 ### Environment Variables
 
 | Variable | Description | Default |
@@ -442,6 +525,8 @@ EMBEDDING_DIMENSIONS=1536
 | `EMBEDDING_API_BASE` | Custom API URL | Provider default |
 | `EMBEDDING_MODEL` | Model name | `text-embedding-3-small` |
 | `EMBEDDING_DIMENSIONS` | Vector dimensions | `1536` |
+| `NER_PROVIDER` | Named Entity Recognition provider | `regex` |
+| `NER_LABELS` | Custom labels for GLiNER (comma-separated) | - |
 | `NEO4J_URI` | Neo4j connection | `bolt://neo4j:7687` |
 | `NEO4J_USER` | Neo4j username | `neo4j` |
 | `NEO4J_PASSWORD` | Neo4j password | `tweetgraph123` |

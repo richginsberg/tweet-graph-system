@@ -582,6 +582,55 @@ class GraphService:
                 count += 1
             return count
     
+    async def reextract_entities(self, batch_size: int = 50) -> dict:
+        """Re-extract entities for all tweets using current NER provider"""
+        from app.theme_extraction import extract_entities
+        
+        async with self.client.session() as session:
+            # Get all tweets
+            result = await session.run("""
+                MATCH (t:Tweet)
+                RETURN t.id as id, t.text as text
+            """)
+            
+            tweets = []
+            async for record in result:
+                tweets.append({
+                    "id": record["id"],
+                    "text": record["text"]
+                })
+            
+            if not tweets:
+                return {"processed": 0, "total": 0, "message": "No tweets found"}
+            
+            # Delete old entity relationships
+            await session.run("MATCH (:Tweet)-[r:MENTIONS_ENTITY]->(:Entity) DELETE r")
+            
+            # Process in batches
+            processed = 0
+            for i in range(0, len(tweets), batch_size):
+                batch = tweets[i:i+batch_size]
+                
+                for tweet in batch:
+                    # Extract entities using current NER provider
+                    entities = extract_entities(tweet["text"])
+                    
+                    # Create entity relationships
+                    for entity in entities:
+                        await session.run("""
+                            MATCH (t:Tweet {id: $id})
+                            MERGE (e:Entity {name: $entity})
+                            MERGE (t)-[:MENTIONS_ENTITY]->(e)
+                        """, id=tweet["id"], entity=entity)
+                    
+                    processed += 1
+            
+            return {
+                "processed": processed,
+                "total": len(tweets),
+                "message": f"Re-extracted entities for {processed} tweets"
+            }
+    
     async def enrich_all_truncated(self, bearer_token: str) -> dict:
         """Enrich all truncated tweets via X API v2 (batch)"""
         if not bearer_token:

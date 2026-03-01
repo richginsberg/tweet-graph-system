@@ -42,6 +42,9 @@ services:
       - EMBEDDING_API_BASE=${EMBEDDING_API_BASE:-}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
       - EMBEDDING_DIMENSIONS=${EMBEDDING_DIMENSIONS:-1536}
+      # NER Provider - configure in .env or here
+      - NER_PROVIDER=${NER_PROVIDER:-regex}
+      - NER_LABELS=${NER_LABELS:-}
       # X API v2 for enriching truncated tweets
       - TWITTER_BEARER_TOKEN=${TWITTER_BEARER_TOKEN:-}
       # Neo4j

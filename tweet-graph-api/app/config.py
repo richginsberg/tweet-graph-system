@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     # Legacy support (maps to EMBEDDING_API_KEY)
     OPENAI_API_KEY: str = ""
     
+    # NER Provider (Named Entity Recognition)
+    # Options: regex (default, fast), disabled, spacy-sm, spacy-lg, gliner-small, gliner-medium, minibase
+    NER_PROVIDER: str = "regex"
+    NER_LABELS: str = ""  # Custom labels for GLiNER (comma-separated), e.g., "person,organization,product"
+    
     class Config:
         env_file = ".env"
     
@@ -108,6 +113,18 @@ class Settings(BaseSettings):
             config["dimensions"] = self.EMBEDDING_DIMENSIONS
         
         config["api_key"] = api_key
+        return config
+    
+    def get_ner_config(self) -> dict:
+        """Get NER configuration"""
+        config = {
+            "provider": self.NER_PROVIDER,
+        }
+        
+        # Parse custom labels for GLiNER
+        if self.NER_LABELS:
+            config["labels"] = [l.strip() for l in self.NER_LABELS.split(",")]
+        
         return config
 
 settings = Settings()
