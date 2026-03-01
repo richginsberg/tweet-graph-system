@@ -141,6 +141,8 @@ def estimate_dimensions(model: str) -> int:
         "deepseek-embed": 1536,
         "qwen3-embedding-8b": 4096,
         "qwen3-embedding-0.6b": 1024,
+        "qwen/qwen3-embedding-0.6b": 1024,
+        "qwen/qwen3-embedding-0.6b-batch": 1024,
         "nomic-embed-text": 768,
         "nomic-embed-text-v1": 768,
         "all-MiniLM-L6-v2": 384,

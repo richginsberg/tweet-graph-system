@@ -1,3 +1,11 @@
-playwright>=1.40.0
+# Playwright requirements for bookmark fetcher
+#
+# NOTE: Playwright 1.48.x is the last version with Node.js 22 bundled.
+# Playwright 1.49+ bundles Node.js 24 which has compatibility issues.
+# See: https://github.com/microsoft/playwright-python/issues/2506
+#
+# Python 3.11-3.12 is recommended. Python 3.14+ may have issues.
+
+playwright>=1.40.0,<1.49.0
 httpx>=0.25.0
 neo4j>=5.14.0

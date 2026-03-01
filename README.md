@@ -311,7 +311,7 @@ The system supports any OpenAI-compatible embedding API:
 | Provider | Cost (1M tokens) | Models | Dimensions | Setup |
 |----------|-----------------|--------|------------|-------|
 | **OpenAI** | $0.02 | text-embedding-3-small, text-embedding-3-large | 1536, 3072 | Default |
-| **DeepInfra** | ~$0.0001 | BAAI/bge-base-en-v1.5 | 768 | Cheap + Fast |
+| **DeepInfra** | ~$0.0001 | Qwen/Qwen3-Embedding-0.6B, Qwen/Qwen3-Embedding-0.6B-batch | 1024 | Cheap + Fast |
 | **Chutes.ai (8B)** | Varies | qwen3-embedding-8b | 4096 | High Quality |
 | **Chutes.ai (0.6B)** | Varies | qwen3-embedding-0.6b | 1024 | Fast |
 | **DeepSeek** | $0.001 | deepseek-embed | 1536 | Very Cheap |
@@ -330,6 +330,43 @@ EMBEDDING_API_KEY=sk-your-openai-key
 EMBEDDING_MODEL=text-embedding-3-small
 EMBEDDING_DIMENSIONS=1536
 ```
+
+#### DeepInfra (Qwen3 Embeddings - Recommended)
+
+DeepInfra offers Qwen3 embeddings with single and batch modes:
+
+```bash
+# Single mode (for individual tweets)
+EMBEDDING_PROVIDER=deepinfra
+EMBEDDING_PROVIDER_ACTIVE=single
+EMBEDDING_API_KEY=your-deepinfra-key
+EMBEDDING_DIMENSIONS=1024
+
+# Batch mode (for bulk imports - faster)
+EMBEDDING_PROVIDER=deepinfra
+EMBEDDING_PROVIDER_ACTIVE=batch
+EMBEDDING_API_KEY=your-deepinfra-key
+EMBEDDING_DIMENSIONS=1024
+```
+
+**Explicit single/batch providers:**
+
+```bash
+# Explicit single
+EMBEDDING_PROVIDER=deepinfra-single
+EMBEDDING_API_KEY=your-deepinfra-key
+EMBEDDING_DIMENSIONS=1024
+
+# Explicit batch
+EMBEDDING_PROVIDER=deepinfra-batch
+EMBEDDING_API_KEY=your-deepinfra-key
+EMBEDDING_DIMENSIONS=1024
+```
+
+**API endpoints:**
+- Single: `Qwen/Qwen3-Embedding-0.6B`
+- Batch: `Qwen/Qwen3-Embedding-0.6B-batch`
+- Both use: `https://api.deepinfra.com/v1/openai/embeddings`
 
 #### DeepSeek
 
@@ -400,6 +437,7 @@ EMBEDDING_DIMENSIONS=1536
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `EMBEDDING_PROVIDER` | Provider name | `openai` |
+| `EMBEDDING_PROVIDER_ACTIVE` | Mode for providers with single/batch | `single` |
 | `EMBEDDING_API_KEY` | API key | - |
 | `EMBEDDING_API_BASE` | Custom API URL | Provider default |
 | `EMBEDDING_MODEL` | Model name | `text-embedding-3-small` |
@@ -679,12 +717,14 @@ If you have a paired node with Chrome:
 
 **Step 2: Install dependencies**
 
+> ⚠️ **Python Version:** Python 3.11-3.12 is recommended. Python 3.14+ may have compatibility issues with Playwright's bundled Node.js. If you encounter `EPIPE` errors, use Python 3.11 or run via Docker.
+
 ```bash
 # Navigate to bookmark-fetcher
 cd tweet-graph-system/bookmark-fetcher
 
-# Create virtual environment
-python3 -m venv venv
+# Create virtual environment (use Python 3.11 if available)
+python3.11 -m venv venv
 source venv/bin/activate
 
 # Install dependencies
@@ -1107,6 +1147,27 @@ curl http://localhost:8000/config
 curl https://api.openai.com/v1/embeddings \
   -H "Authorization: Bearer $EMBEDDING_API_KEY" \
   -d '{"input": "test", "model": "text-embedding-3-small"}'
+```
+
+**Playwright EPIPE error (Node.js compatibility):**
+
+If you see `Error: write EPIPE` when running the bookmark fetcher:
+
+```bash
+# This is a Python 3.14 + Playwright Node.js 24 compatibility issue
+# Solution 1: Use Python 3.11
+python3.11 -m venv venv
+source venv/bin/activate
+pip install -r requirements-playwright.txt
+playwright install chromium
+
+# Solution 2: Run via Docker (uses Python 3.11)
+docker build -t bookmark-fetcher ./bookmark-fetcher
+docker run -v $(pwd)/cookies.json:/app/cookies.json bookmark-fetcher
+
+# Solution 3: Pin Playwright to older version
+pip install 'playwright>=1.40.0,<1.49.0'
+playwright install chromium
 ```
 
 ### Kubernetes Issues

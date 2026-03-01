@@ -14,7 +14,8 @@ class Settings(BaseSettings):
     TWITTER_API_TIER: str = "free"  # free, basic, pro
     
     # Embedding Provider (OpenAI-compatible)
-    EMBEDDING_PROVIDER: str = "openai"  # openai, deepseek, together, groq, ollama, local
+    EMBEDDING_PROVIDER: str = "openai"  # openai, deepinfra-single, deepinfra-batch, deepseek, together, groq, ollama, local
+    EMBEDDING_PROVIDER_ACTIVE: str = "single"  # single | batch (for providers that support both)
     EMBEDDING_API_KEY: str = ""
     EMBEDDING_API_BASE: str = ""  # Leave empty for default provider
     EMBEDDING_MODEL: str = "text-embedding-3-small"
@@ -38,9 +39,20 @@ class Settings(BaseSettings):
                 "dimensions": 1536
             },
             "deepinfra": {
-                "api_base": "https://api.deepinfra.com/v1/openai/embeddings",
-                "model": "BAAI/bge-base-en-v1.5",
-                "dimensions": 768
+                # Uses EMBEDDING_PROVIDER_ACTIVE to select single vs batch
+                "api_base": "https://api.deepinfra.com/v1/openai",
+                "model": f"Qwen/Qwen3-Embedding-0.6B{'-batch' if self.EMBEDDING_PROVIDER_ACTIVE == 'batch' else ''}",
+                "dimensions": 1024
+            },
+            "deepinfra-single": {
+                "api_base": "https://api.deepinfra.com/v1/openai",
+                "model": "Qwen/Qwen3-Embedding-0.6B",
+                "dimensions": 1024
+            },
+            "deepinfra-batch": {
+                "api_base": "https://api.deepinfra.com/v1/openai",
+                "model": "Qwen/Qwen3-Embedding-0.6B-batch",
+                "dimensions": 1024
             },
             "chutes-8b": {
                 "api_base": "https://chutes-qwen-qwen3-embedding-8b.chutes.ai/v1",
@@ -86,10 +98,11 @@ class Settings(BaseSettings):
         
         config = provider_configs.get(self.EMBEDDING_PROVIDER, provider_configs["openai"])
         
-        # Override with user settings if provided
+        # Override with user settings if provided (and not empty/default)
         if self.EMBEDDING_API_BASE:
             config["api_base"] = self.EMBEDDING_API_BASE
-        if self.EMBEDDING_MODEL:
+        # Only override model if explicitly set (not the default)
+        if self.EMBEDDING_MODEL and self.EMBEDDING_MODEL != "text-embedding-3-small":
             config["model"] = self.EMBEDDING_MODEL
         if self.EMBEDDING_DIMENSIONS:
             config["dimensions"] = self.EMBEDDING_DIMENSIONS

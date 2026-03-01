@@ -551,6 +551,37 @@ class GraphService:
             logger.error(f"Enrichment error for {tweet_id}: {e}")
             return {"error": str(e)}
     
+    async def get_tweets_without_embeddings(self, limit: int = 100) -> list:
+        """Get tweets that don't have embeddings (or have zero embeddings)"""
+        async with self.client.session() as session:
+            result = await session.run("""
+                MATCH (t:Tweet)
+                WHERE t.embedding IS NULL OR t.embedding = [] OR size(t.embedding) < 100
+                   OR (t.embedding[0] = 0.0 AND t.embedding[1] = 0.0 AND t.embedding[2] = 0.0)
+                RETURN t.id as id, t.text as text
+                LIMIT $limit
+            """, limit=limit)
+            
+            tweets = []
+            async for record in result:
+                tweets.append({
+                    "id": record["id"],
+                    "text": record["text"]
+                })
+            return tweets
+    
+    async def batch_update_embeddings(self, tweet_ids: list, embeddings: list) -> int:
+        """Update embeddings for multiple tweets"""
+        async with self.client.session() as session:
+            count = 0
+            for tweet_id, embedding in zip(tweet_ids, embeddings):
+                await session.run("""
+                    MATCH (t:Tweet {id: $id})
+                    SET t.embedding = $embedding
+                """, id=tweet_id, embedding=embedding)
+                count += 1
+            return count
+    
     async def enrich_all_truncated(self, bearer_token: str) -> dict:
         """Enrich all truncated tweets via X API v2 (batch)"""
         if not bearer_token:

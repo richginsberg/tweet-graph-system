@@ -37,6 +37,7 @@ services:
       - NEO4J_PASSWORD=tweetgraph123
       # Embedding Provider - configure in .env or here
       - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-openai}
+      - EMBEDDING_PROVIDER_ACTIVE=${EMBEDDING_PROVIDER_ACTIVE:-single}
       - EMBEDDING_API_KEY=${EMBEDDING_API_KEY:-}
       - EMBEDDING_API_BASE=${EMBEDDING_API_BASE:-}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}

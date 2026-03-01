@@ -174,6 +174,34 @@ async def refresh_tweet_from_embed(tweet_id: str):
         "message": "Tweet refreshed from embed"
     }
 
+@app.post("/tweets/embed-all")
+async def embed_all_tweets(batch_size: int = 50):
+    """Generate embeddings for all tweets without embeddings using batch API"""
+    from app.embeddings import get_embeddings_batch
+    
+    # Get tweets without embeddings
+    tweets = await graph_service.get_tweets_without_embeddings(limit=batch_size)
+    
+    if not tweets:
+        return {"message": "All tweets have embeddings", "processed": 0, "total": 0}
+    
+    # Extract texts and ids
+    texts = [t["text"] for t in tweets]
+    ids = [t["id"] for t in tweets]
+    
+    # Get embeddings in batch
+    embeddings = await get_embeddings_batch(texts, graph_service.embedding_config)
+    
+    # Update in database
+    updated = await graph_service.batch_update_embeddings(ids, embeddings)
+    
+    return {
+        "processed": updated,
+        "total": len(tweets),
+        "provider": settings.EMBEDDING_PROVIDER,
+        "model": settings.get_embedding_config()["model"]
+    }
+
 @app.post("/tweets/enrich-all")
 async def enrich_all_truncated():
     """Enrich all truncated tweets via X API v2 (batch)"""
