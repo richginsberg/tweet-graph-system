@@ -13,6 +13,7 @@ Usage:
 import asyncio
 import json
 import logging
+import os
 import re
 import argparse
 from datetime import datetime, timezone
@@ -27,6 +28,7 @@ TWEET_GRAPH_API_URL = "http://localhost:8000"
 BOOKMARKS_URL = "https://x.com/i/bookmarks"
 COOKIES_FILE = "cookies.json"
 STATE_FILE = "state.json"
+QUEUE_FILE = "queue.json"  # Persistent queue for resilience
 
 # Scroll configuration
 MAX_SCROLLS_FULL = 500          # For full fetch (increased)
@@ -89,6 +91,54 @@ class BookmarkFetcher:
             self.last_known_id = self.state.get("last_tweet_id")
             logger.info(f"Incremental mode: {len(self.seen_ids)} previously seen IDs")
     
+    def load_queue(self) -> List[Dict]:
+        """Load queued bookmarks from previous interrupted runs"""
+        try:
+            with open(QUEUE_FILE, "r") as f:
+                queue = json.load(f)
+                if queue:
+                    logger.info(f"Loaded {len(queue)} queued bookmarks from previous run")
+                return queue
+        except FileNotFoundError:
+            return []
+        except Exception as e:
+            logger.warning(f"Could not load queue: {e}")
+            return []
+    
+    def save_queue(self, bookmarks: List[Dict]):
+        """Save bookmarks to queue (for resilience against EPIPE)"""
+        try:
+            with open(QUEUE_FILE, "w") as f:
+                json.dump(bookmarks, f, indent=2)
+            logger.debug(f"Queued {len(bookmarks)} bookmarks")
+        except Exception as e:
+            logger.error(f"Could not save queue: {e}")
+    
+    def clear_queue(self):
+        """Clear the queue after successful sync"""
+        try:
+            if os.path.exists(QUEUE_FILE):
+                os.remove(QUEUE_FILE)
+                logger.info("Queue cleared")
+        except Exception as e:
+            logger.warning(f"Could not clear queue: {e}")
+    
+    async def process_queue(self) -> Dict:
+        """Process any queued bookmarks from previous interrupted runs"""
+        queue = self.load_queue()
+        if not queue:
+            return {"processed": 0, "message": "No queued bookmarks"}
+        
+        logger.info(f"Processing {len(queue)} queued bookmarks...")
+        result = await self.sync_to_graph(queue)
+        
+        if result.get("new_stored", 0) > 0 or result.get("updated", 0) > 0:
+            self.clear_queue()
+            return {"processed": len(queue), "result": result}
+        else:
+            logger.warning("Queue sync failed, keeping queue for retry")
+            return {"processed": 0, "result": result}
+    
     async def fetch_bookmarks(self) -> List[Dict]:
         """Fetch bookmarks with proper pagination"""
         logger.info(f"Fetching bookmarks (mode={self.mode})...")
@@ -148,8 +198,10 @@ class BookmarkFetcher:
                             
                             collected_tweets[tweet_id] = data
                             new_this_scroll += 1
+                        else:
+                            logger.debug(f"Tweet skipped: id={data.get('id')}, has_text={bool(data.get('text'))}")
                     except Exception as e:
-                        logger.debug(f"Parse error during scroll: {e}")
+                        logger.warning(f"Parse error during scroll: {e}")
                 
                 if found_existing:
                     break
@@ -169,12 +221,20 @@ class BookmarkFetcher:
                 
                 last_total_count = total_collected
                 
+                # Save to queue periodically (every 10 scrolls) for resilience
+                if scroll_attempt % 10 == 0 and collected_tweets:
+                    self.save_queue(list(collected_tweets.values()))
+                
                 # Scroll down
                 await page.evaluate(f"window.scrollBy(0, {SCROLL_DISTANCE})")
                 await asyncio.sleep(SCROLL_DELAY)
                 scroll_attempt += 1
             
             # Close browser (may fail with EPIPE on Python 3.14, but data is already collected)
+            # Save final state before closing browser
+            if collected_tweets:
+                self.save_queue(list(collected_tweets.values()))
+            
             try:
                 await browser.close()
             except Exception as e:
@@ -189,6 +249,7 @@ class BookmarkFetcher:
     
     async def parse_tweet(self, elem) -> Dict:
         """Parse tweet with full text and entities"""
+        import re  # Import at start of function to avoid scoping issues
         
         # Get tweet link and ID
         link = await elem.query_selector('a[href*="/status/"]')
@@ -361,17 +422,34 @@ async def main():
     parser = argparse.ArgumentParser(description="Fetch X/Twitter bookmarks")
     parser.add_argument("--full", action="store_true", help="Full fetch (load all bookmarks)")
     parser.add_argument("--incremental", action="store_true", help="Incremental fetch (only new)")
+    parser.add_argument("--process-queue", action="store_true", help="Only process queued bookmarks, don't fetch")
     args = parser.parse_args()
     
     mode = "full" if args.full else "incremental"
     fetcher = BookmarkFetcher(mode=mode)
     
+    # First, process any queued bookmarks from previous interrupted runs
+    queue_result = await fetcher.process_queue()
+    if queue_result.get("processed", 0) > 0:
+        print(f"\n{'='*70}")
+        print(f"QUEUED BOOKMARKS PROCESSED: {queue_result['processed']}")
+        print(f"Result: {queue_result.get('result', {})}")
+        print(f"{'='*70}\n")
+    
+    # If only processing queue, stop here
+    if args.process_queue:
+        logger.info("Queue-only mode, skipping fetch")
+        return
+    
+    # Fetch new bookmarks
     bookmarks = await fetcher.fetch_bookmarks()
     
     if not bookmarks:
         logger.info("No new bookmarks found")
         # Still update state
         fetcher.save_state(len(fetcher.seen_ids))
+        # Clear queue since we completed successfully
+        fetcher.clear_queue()
         return
     
     # Show summary
@@ -398,6 +476,10 @@ async def main():
     # Save state with new IDs
     new_ids = [b["id"] for b in bookmarks]
     fetcher.save_state(len(fetcher.seen_ids), new_ids)
+    
+    # Clear queue after successful sync
+    if result.get("new_stored", 0) > 0 or result.get("updated", 0) > 0:
+        fetcher.clear_queue()
     
     print(f"\nSync result: {result}")
     print(f"State saved: {len(fetcher.seen_ids)} total seen tweet IDs")

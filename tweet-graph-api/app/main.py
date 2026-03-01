@@ -237,7 +237,33 @@ async def get_tweet(tweet_id: str):
 
 @app.post("/search", response_model=SearchResponse)
 async def search_tweets(request: SearchRequest):
-    """Vector similarity search for tweets"""
+    """Vector similarity search for tweets, or exact ID lookup"""
+    import re
+    
+    # Check if query is a tweet ID (numeric, 15-20 digits)
+    if re.match(r'^\d{15,20}$', request.query.strip()):
+        # Exact ID lookup
+        tweet = await graph_service.get_tweet(request.query.strip())
+        if tweet:
+            return SearchResponse(
+                query=request.query,
+                results=[{
+                    "id": tweet["id"],
+                    "text": tweet["text"],
+                    "author": tweet.get("author"),
+                    "score": 1.0,
+                    "hashtags": tweet.get("hashtags", [])
+                }],
+                count=1
+            )
+        else:
+            return SearchResponse(
+                query=request.query,
+                results=[],
+                count=0
+            )
+    
+    # Vector similarity search
     results = await graph_service.vector_search(request.query, request.limit)
     return SearchResponse(
         query=request.query,
