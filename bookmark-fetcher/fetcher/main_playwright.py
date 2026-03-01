@@ -220,6 +220,23 @@ class BookmarkFetcher:
             text = await text_elem.inner_text()
             is_truncated = False
         
+        # Fallback: Detect truncation from text patterns even without "Show more" link
+        # X sometimes renders truncated tweets without the expand link
+        if not is_truncated:
+            # Check for broken URLs (newlines in middle of URLs)
+            if re.search(r'https?://\s*\n', text):
+                is_truncated = True
+                logger.debug(f"Tweet {tweet_id} has broken URLs (likely truncated)")
+            # Check for truncation indicators mid-text or at line ends (not just at very end)
+            # Pattern: ellipsis followed by newline and more text, or ellipsis in URL
+            elif re.search(r'[…>]{2,}\s*\n.', text):  # … or >>> followed by newline and more content
+                is_truncated = True
+                logger.debug(f"Tweet {tweet_id} has truncation markers mid-text")
+            # Check for URLs that end with ellipsis (broken link)
+            elif re.search(r'https?://[^\s]*[…]', text):
+                is_truncated = True
+                logger.debug(f"Tweet {tweet_id} has truncated URL")
+        
         # Get author username - look for the specific username link
         author_username = ""
         # The username is in a link with href="/username" pattern
