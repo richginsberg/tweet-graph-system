@@ -32,7 +32,7 @@ STATE_FILE = "state.json"
 MAX_SCROLLS_FULL = 500          # For full fetch (increased)
 MAX_SCROLLS_INCREMENTAL = 50    # For incremental
 SCROLL_DISTANCE = 5000          # Pixels to scroll (increased)
-SCROLL_DELAY = 3.0              # Seconds between scrolls (slightly longer)
+SCROLL_DELAY = 5.0              # Seconds between scrolls (slightly longer)
 NO_CHANGE_LIMIT = 15            # Stop after N scrolls with no new tweets (increased)
 
 
@@ -174,7 +174,11 @@ class BookmarkFetcher:
                 await asyncio.sleep(SCROLL_DELAY)
                 scroll_attempt += 1
             
-            await browser.close()
+            # Close browser (may fail with EPIPE on Python 3.14, but data is already collected)
+            try:
+                await browser.close()
+            except Exception as e:
+                logger.debug(f"Browser close error (non-critical): {e}")
             
             # Convert collected tweets to list
             new_bookmarks = list(collected_tweets.values())
@@ -216,15 +220,53 @@ class BookmarkFetcher:
             text = await text_elem.inner_text()
             is_truncated = False
         
-        # Get author username
+        # Get author username - look for the specific username link
         author_username = ""
-        author_elem = await elem.query_selector('[data-testid="User-Name"]')
-        if author_elem:
-            author_text = await author_elem.inner_text()
-            # Extract username - usually after @
-            parts = author_text.split("@")
-            if len(parts) > 1:
-                author_username = parts[1].split("\n")[0].strip()
+        # The username is in a link with href="/username" pattern
+        user_link = await elem.query_selector('a[href^="/"][role="link"]')
+        if user_link:
+            href = await user_link.get_attribute("href")
+            if href and href.startswith("/") and "/" not in href[1:]:
+                # This is the profile link, extract username from href
+                author_username = href[1:]  # Remove leading /
+        
+        # Fallback: parse from User-Name element if link not found
+        if not author_username:
+            author_elem = await elem.query_selector('[data-testid="User-Name"]')
+            if author_elem:
+                author_text = await author_elem.inner_text()
+                # Format is usually: "Display Name\n@username\nDate"
+                # Extract just the @username part
+                for line in author_text.split("\n"):
+                    line = line.strip()
+                    if line.startswith("@"):
+                        author_username = line[1:]  # Remove @
+                        break
+        
+        # Clean up author_username - remove any date patterns that may have been captured
+        # Handles patterns like: username·Feb 20, username?Feb 21, username Feb 22
+        if author_username:
+            # Remove anything after common separators (?, ·, space followed by month)
+            import re
+            # Pattern: username followed by separator and date
+            clean_match = re.match(r'^([a-zA-Z0-9_]+)', author_username)
+            if clean_match:
+                author_username = clean_match.group(1)
+            # Also strip any trailing non-alphanumeric chars
+            author_username = re.sub(r'[^a-zA-Z0-9_]+$', '', author_username)
+        
+        # Get posted_at date from time element
+        posted_at = None
+        time_elem = await elem.query_selector('time')
+        if time_elem:
+            # X uses <time datetime="2024-01-15T10:30:00.000Z">Aug 2, 2025</time>
+            datetime_attr = await time_elem.get_attribute('datetime')
+            if datetime_attr:
+                try:
+                    # Parse ISO 8601 format
+                    posted_at = datetime.fromisoformat(datetime_attr.replace("Z", "+00:00")).isoformat()
+                except:
+                    pass
         
         # Extract entities from text
         hashtags = list(set(re.findall(r'#(\w+)', text)))
@@ -256,6 +298,7 @@ class BookmarkFetcher:
             "mentions": mentions,
             "urls": urls,
             "created_at": datetime.now(timezone.utc).isoformat(),
+            "posted_at": posted_at,  # Parsed from <time> element
             "bookmark_url": f"https://x.com{href}",
             "truncated": is_truncated
         }

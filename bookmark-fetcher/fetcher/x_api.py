@@ -215,7 +215,8 @@ class XAPIFetcher:
                     "text": tweet["text"],
                     "author_id": author_id,
                     "author_username": users.get(author_id, {}).get("username", ""),
-                    "created_at": self._parse_twitter_date(tweet.get("created_at")),
+                    "created_at": datetime.now(timezone.utc).isoformat(),  # Fetch time
+                    "posted_at": self._parse_twitter_date(tweet.get("created_at")),  # X post date
                     "hashtags": [h["tag"] for h in tweet.get("entities", {}).get("hashtags", [])],
                     "mentions": [m["username"] for m in tweet.get("entities", {}).get("mentions", [])],
                     "urls": [u.get("expanded_url", u.get("url", "")) 
@@ -258,7 +259,8 @@ class XAPIFetcher:
             "text": tweet["text"],
             "author_id": tweet.get("author_id"),
             "author_username": author_username,
-            "created_at": self._parse_twitter_date(tweet.get("created_at")),
+            "created_at": datetime.now(timezone.utc).isoformat(),  # Fetch time
+            "posted_at": self._parse_twitter_date(tweet.get("created_at")),  # X post date
             "hashtags": [h["tag"] for h in tweet.get("entities", {}).get("hashtags", [])],
             "mentions": [m["username"] for m in tweet.get("entities", {}).get("mentions", [])],
             "urls": [u.get("expanded_url", u.get("url", "")) 

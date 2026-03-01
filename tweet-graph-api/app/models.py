@@ -15,7 +15,8 @@ class TweetCreate(BaseModel):
     text: str
     author_id: Optional[str] = None
     author_username: Optional[str] = None
-    created_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None  # When we fetched/stored the tweet
+    posted_at: Optional[datetime] = None   # When the tweet was published on X
     hashtags: Optional[List[str]] = []
     mentions: Optional[List[str]] = []
     urls: Optional[List[str]] = []

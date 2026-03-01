@@ -16,6 +16,7 @@ interface FilterState {
   author: string
   hashtag: string
   truncated: boolean | null
+  sortBy: 'desc' | 'asc'
 }
 
 const getApiUrl = () => {
@@ -54,6 +55,7 @@ export default function TweetsPage() {
     author: '',
     hashtag: '',
     truncated: null,
+    sortBy: 'desc',
   })
   const [allHashtags, setAllHashtags] = useState<string[]>([])
   const [allAuthors, setAllAuthors] = useState<string[]>([])
@@ -213,6 +215,16 @@ export default function TweetsPage() {
       filtered = filtered.filter(t => t.truncated === filters.truncated)
     }
     
+    // Apply sort by tweet ID (snowflake - higher ID = newer tweet)
+    if (filters.sortBy) {
+      filtered = [...filtered].sort((a, b) => {
+        const aId = (a.id || '').split('/')[0]
+        const bId = (b.id || '').split('/')[0]
+        const comparison = aId < bId ? -1 : aId > bId ? 1 : 0
+        return filters.sortBy === 'desc' ? -comparison : comparison
+      })
+    }
+    
     setFilteredTweets(filtered)
   }, [filters, tweets])
 
@@ -240,7 +252,7 @@ export default function TweetsPage() {
   }, [offset, hasMore, loadingMore, tweets])
 
   const clearFilters = () => {
-    setFilters({ author: '', hashtag: '', truncated: null })
+    setFilters({ author: '', hashtag: '', truncated: null, sortBy: 'desc' })
   }
 
   if (loading) {
@@ -274,13 +286,13 @@ export default function TweetsPage() {
       </div>
 
       {/* Sticky Filter Header */}
-      <div className="sticky top-16 z-40 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-4 bg-[hsl(var(--background)/0.95)] backdrop-blur-xl border-b border-[hsl(var(--border))]">
-        <div className="flex flex-wrap gap-3 items-center">
+      <div style={{ position: 'sticky', top: '64px', zIndex: 40, padding: '12px 0', background: 'hsl(var(--background))', borderBottom: '1px solid hsl(var(--border))' }}>
+        <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '8px', flexWrap: 'nowrap', overflowX: 'auto' }}>
           {/* Author Filter */}
           <select
             value={filters.author}
             onChange={(e) => setFilters(f => ({ ...f, author: e.target.value }))}
-            className="input w-auto min-w-[150px]"
+            style={{ flexShrink: 0, width: '130px', padding: '6px 12px', borderRadius: '8px', border: '1px solid hsl(var(--border))', background: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))', fontSize: '14px', cursor: 'pointer' }}
           >
             <option value="">All Authors</option>
             {allAuthors.map(author => (
@@ -292,7 +304,7 @@ export default function TweetsPage() {
           <select
             value={filters.hashtag}
             onChange={(e) => setFilters(f => ({ ...f, hashtag: e.target.value }))}
-            className="input w-auto min-w-[150px]"
+            style={{ flexShrink: 0, width: '130px', padding: '6px 12px', borderRadius: '8px', border: '1px solid hsl(var(--border))', background: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))', fontSize: '14px', cursor: 'pointer' }}
           >
             <option value="">All Hashtags</option>
             {allHashtags.map(tag => (
@@ -307,17 +319,33 @@ export default function TweetsPage() {
               ...f, 
               truncated: e.target.value === '' ? null : e.target.value === 'true' 
             }))}
-            className="input w-auto min-w-[150px]"
+            style={{ flexShrink: 0, width: '120px', padding: '6px 12px', borderRadius: '8px', border: '1px solid hsl(var(--border))', background: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))', fontSize: '14px', cursor: 'pointer' }}
           >
             <option value="">All Status</option>
             <option value="false">Full Text</option>
             <option value="true">Truncated</option>
           </select>
 
+          {/* Sort by Date */}
+          <select
+            value={filters.sortBy}
+            onChange={(e) => setFilters(f => ({ 
+              ...f, 
+              sortBy: e.target.value as 'desc' | 'asc'
+            }))}
+            style={{ flexShrink: 0, width: '130px', padding: '6px 12px', borderRadius: '8px', border: '1px solid hsl(var(--border))', background: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))', fontSize: '14px', cursor: 'pointer' }}
+          >
+            <option value="desc">Newest First</option>
+            <option value="asc">Oldest First</option>
+          </select>
+
           {/* Clear Filters */}
           {(filters.author || filters.hashtag || filters.truncated !== null) && (
-            <button onClick={clearFilters} className="btn btn-secondary text-sm">
-              Clear Filters
+            <button 
+              onClick={clearFilters} 
+              style={{ flexShrink: 0, whiteSpace: 'nowrap', padding: '6px 12px', borderRadius: '8px', border: '1px solid hsl(var(--border))', background: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))', fontSize: '14px', cursor: 'pointer' }}
+            >
+              Clear
             </button>
           )}
         </div>

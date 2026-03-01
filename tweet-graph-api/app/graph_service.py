@@ -43,6 +43,7 @@ class GraphService:
         MERGE (t:Tweet {id: $id})
         SET t.text = $text,
             t.created_at = $created_at,
+            t.posted_at = $posted_at,
             t.bookmark_url = $bookmark_url,
             t.embedding = $embedding,
             t.truncated = $truncated,
@@ -99,6 +100,7 @@ class GraphService:
             "id": tweet.id,
             "text": tweet.text,
             "created_at": tweet.created_at.isoformat() if tweet.created_at else None,
+            "posted_at": tweet.posted_at.isoformat() if tweet.posted_at else None,
             "bookmark_url": tweet.bookmark_url,
             "embedding": embedding,
             "truncated": tweet.truncated if tweet.truncated is not None else True,
@@ -160,7 +162,7 @@ class GraphService:
     
     async def update_tweet_full_text(self, tweet_id: str, full_text: str, 
                                        hashtags: list = None, mentions: list = None,
-                                       author_username: str = None):
+                                       author_username: str = None, posted_at: str = None):
         """Update tweet with full text from X API v2, set truncated=False"""
         # Update tweet properties
         query = """
@@ -168,6 +170,12 @@ class GraphService:
         SET t.text = $text, t.truncated = false
         """
         params = {"id": tweet_id, "text": full_text}
+        
+        # Add posted_at if provided
+        if posted_at:
+            query = query.replace("SET t.text = $text, t.truncated = false",
+                                  "SET t.text = $text, t.truncated = false, t.posted_at = $posted_at")
+            params["posted_at"] = posted_at
         
         await self.client.execute(query, params)
         
@@ -323,7 +331,7 @@ class GraphService:
                        [(t)-[:HAS_HASHTAG]->(h) | h.tag] as hashtags,
                        [(t)-[:ABOUT_THEME]->(th) | th.name] as themes,
                        [(t)-[:MENTIONS_ENTITY]->(e) | e.name] as entities
-                ORDER BY t.created_at DESC
+                ORDER BY t.posted_at DESC
                 LIMIT 100
             """)
             
@@ -354,7 +362,7 @@ class GraphService:
                        coalesce(author_username, t.author_username) as author,
                        [(t)-[:HAS_HASHTAG]->(h) | h.tag] as hashtags,
                        t.created_at as created_at
-                ORDER BY t.created_at DESC
+                ORDER BY t.posted_at DESC
                 SKIP $offset
                 LIMIT $limit
             """, offset=offset, limit=limit)
@@ -422,7 +430,7 @@ class GraphService:
                 RETURN t.id as id, t.text as text, t.bookmark_url as bookmark_url,
                        coalesce(u.username, t.author_username) as author,
                        t.created_at as created_at
-                ORDER BY t.created_at DESC
+                ORDER BY t.posted_at DESC
             """)
             
             tweets = []
@@ -507,6 +515,7 @@ class GraphService:
                 tweet_data = data["data"]
                 full_text = tweet_data.get("text", "")
                 entities = tweet_data.get("entities", {})
+                posted_at = tweet_data.get("created_at")  # X API returns posted date
                 
                 hashtags = [h["tag"] for h in entities.get("hashtags", [])]
                 mentions = [m["username"] for m in entities.get("mentions", [])]
@@ -519,8 +528,8 @@ class GraphService:
                             author = user.get("username", "")
                             break
                 
-                # Update in database
-                await self.update_tweet_full_text(tweet_id, full_text, hashtags, mentions, author)
+                # Update in database (with posted_at from X API)
+                await self.update_tweet_full_text(tweet_id, full_text, hashtags, mentions, author, posted_at)
                 
                 # Mark as not truncated
                 async with self.client.session() as session:
