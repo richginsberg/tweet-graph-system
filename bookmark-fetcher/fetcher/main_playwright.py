@@ -297,6 +297,16 @@ class BookmarkFetcher:
             elif re.search(r'https?://[^\s]*[…]', text):
                 is_truncated = True
                 logger.debug(f"Tweet {tweet_id} has truncated URL")
+            # Check for suspiciously short text with link (lazy-loading issue)
+            # Pattern: very short text (< 30 chars) followed by link, likely incomplete
+            elif len(text) < 30 and re.search(r'https?://', text):
+                is_truncated = True
+                logger.debug(f"Tweet {tweet_id} has short text with link (likely lazy-loaded)")
+            # Check for text that's just a link with minimal context
+            # Pattern: link with < 10 chars before it (e.g., "Try it here! https://...")
+            elif re.match(r'^.{1,15}\s+https?://', text):
+                is_truncated = True
+                logger.debug(f"Tweet {tweet_id} appears to be lazy-loaded (minimal context before link)")
         
         # Get author username - look for the specific username link
         author_username = ""

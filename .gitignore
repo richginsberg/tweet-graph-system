@@ -50,6 +50,7 @@ data/
 state.json
 *.state
 cookies.json
+bookmark-fetcher/queue.json
 
 # Logs
 *.log

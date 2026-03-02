@@ -387,6 +387,63 @@ async def get_entities():
     """Get all entities with mention counts"""
     return await graph_service.get_entities()
 
+@app.get("/entities/{entity_name}/graph")
+async def get_entity_graph(entity_name: str, limit: int = 20):
+    """Get graph data for a specific entity (tweets that mention it)"""
+    result = await graph_service.get_entity_graph(entity_name, limit)
+    if result["count"] == 0:
+        # Entity might not exist
+        return {"entity": entity_name, "tweets": [], "count": 0}
+    return result
+
+@app.get("/entities/{entity_name}/edit-preview")
+async def get_entity_edit_preview(entity_name: str, new_name: str):
+    """
+    Preview entity rename/merge operation
+    
+    Shows which tweets will be affected and if merging with existing entity
+    """
+    result = await graph_service.get_entity_edit_preview(entity_name, new_name)
+    return result
+
+@app.put("/entities/{entity_name}")
+async def rename_entity(entity_name: str, new_name: str):
+    """
+    Rename or merge an entity
+    
+    If new_name matches an existing entity, merges relationships.
+    Otherwise, renames the entity.
+    """
+    if entity_name.lower() == new_name.lower():
+        raise HTTPException(status_code=400, detail="New name must be different from current name")
+    
+    result = await graph_service.rename_entity(entity_name, new_name)
+    
+    if result.get("action") == "renamed" and not result.get("success"):
+        raise HTTPException(status_code=404, detail=f"Entity '{entity_name}' not found")
+    
+    return {
+        "message": f"Entity '{entity_name}' {result['action']} to '{new_name}'",
+        **result
+    }
+
+@app.delete("/entities/{entity_name}")
+async def delete_entity(entity_name: str):
+    """
+    Delete an entity and all its relationships
+    
+    This removes the entity node and all MENTIONS_ENTITY relationships.
+    Tweets that mentioned this entity are NOT deleted.
+    """
+    result = await graph_service.delete_entity(entity_name)
+    if result.get("deleted", 0) == 0:
+        raise HTTPException(status_code=404, detail=f"Entity '{entity_name}' not found")
+    return {
+        "message": f"Entity '{entity_name}' deleted",
+        "deleted": result["deleted"],
+        "relationships_removed": result.get("relationships", 0)
+    }
+
 @app.get("/config")
 async def get_config():
     """Get current embedding configuration"""

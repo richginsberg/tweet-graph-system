@@ -420,6 +420,192 @@ class GraphService:
                 })
             return {"entities": entities}
     
+    async def delete_entity(self, entity_name: str) -> dict:
+        """Delete an entity and all its relationships"""
+        async with self.client.session() as session:
+            # Count relationships first
+            rels_result = await session.run("""
+                MATCH (e:Entity {name: $name})-[r]-()
+                RETURN count(r) as rel_count
+            """, name=entity_name)
+            rels_record = await rels_result.single()
+            rel_count = rels_record["rel_count"] if rels_record else 0
+            
+            # Delete entity and relationships
+            result = await session.run("""
+                MATCH (e:Entity {name: $name})
+                WITH e, count(e) as deleted
+                DETACH DELETE e
+                RETURN deleted
+            """, name=entity_name)
+            record = await result.single()
+            
+            return {
+                "deleted": record["deleted"] if record else 0,
+                "relationships": rel_count
+            }
+    
+    async def get_entity_graph(self, entity_name: str, limit: int = 20) -> dict:
+        """Get graph data for a specific entity (tweets that mention it)"""
+        async with self.client.session() as session:
+            # Get tweets that mention this entity (full text for review)
+            result = await session.run("""
+                MATCH (e:Entity {name: $name})<-[:MENTIONS_ENTITY]-(t:Tweet)
+                OPTIONAL MATCH (u:User)-[:POSTED]->(t)
+                RETURN t.id as id, t.text as text, 
+                       coalesce(u.username, t.author_username) as author,
+                       t.posted_at as posted_at
+                ORDER BY t.posted_at DESC
+                LIMIT $limit
+            """, name=entity_name, limit=limit)
+            
+            tweets = []
+            async for record in result:
+                tweets.append({
+                    "id": record["id"],
+                    "text": record["text"],  # Full text, no truncation
+                    "author": record["author"],
+                    "posted_at": record["posted_at"]
+                })
+            
+            return {
+                "entity": entity_name,
+                "tweets": tweets,
+                "count": len(tweets)
+            }
+    
+    async def get_entity_edit_preview(self, old_name: str, new_name: str) -> dict:
+        """Preview entity rename/merge - show affected tweets with highlighting"""
+        async with self.client.session() as session:
+            # Check if new entity already exists
+            existing_result = await session.run("""
+                MATCH (e:Entity {name: $name})
+                RETURN e.name as name
+            """, name=new_name)
+            existing_record = await existing_result.single()
+            target_exists = existing_record is not None
+            
+            # Get tweets from source entity (full text for review)
+            source_result = await session.run("""
+                MATCH (e:Entity {name: $name})<-[:MENTIONS_ENTITY]-(t:Tweet)
+                OPTIONAL MATCH (u:User)-[:POSTED]->(t)
+                RETURN t.id as id, t.text as text, 
+                       coalesce(u.username, t.author_username) as author,
+                       t.posted_at as posted_at
+                ORDER BY t.posted_at DESC
+                LIMIT 20
+            """, name=old_name)
+            
+            source_tweets = []
+            async for record in source_result:
+                source_tweets.append({
+                    "id": record["id"],
+                    "text": record["text"],  # Full text, no truncation
+                    "author": record["author"],
+                    "posted_at": record["posted_at"]
+                })
+            
+            # Get tweets from target entity (if exists)
+            target_tweets = []
+            if target_exists:
+                target_result = await session.run("""
+                    MATCH (e:Entity {name: $name})<-[:MENTIONS_ENTITY]-(t:Tweet)
+                    OPTIONAL MATCH (u:User)-[:POSTED]->(t)
+                    RETURN t.id as id, t.text as text, 
+                           coalesce(u.username, t.author_username) as author,
+                           t.posted_at as posted_at
+                    ORDER BY t.posted_at DESC
+                    LIMIT 20
+                """, name=new_name)
+                
+                async for record in target_result:
+                    target_tweets.append({
+                        "id": record["id"],
+                        "text": record["text"],  # Full text, no truncation
+                        "author": record["author"],
+                        "posted_at": record["posted_at"]
+                    })
+            
+            return {
+                "old_name": old_name,
+                "new_name": new_name,
+                "target_exists": target_exists,
+                "is_merge": target_exists and old_name.lower() != new_name.lower(),
+                "source_tweets": source_tweets,
+                "source_count": len(source_tweets),
+                "target_tweets": target_tweets,
+                "target_count": len(target_tweets)
+            }
+    
+    async def rename_entity(self, old_name: str, new_name: str) -> dict:
+        """Rename or merge an entity"""
+        async with self.client.session() as session:
+            # Check if target exists
+            existing_result = await session.run("""
+                MATCH (e:Entity {name: $name})
+                RETURN count(e) as count
+            """, name=new_name)
+            existing_record = await existing_result.single()
+            target_exists = existing_record["count"] > 0 if existing_record else False
+            
+            if target_exists:
+                # Merge: transfer relationships to existing entity, delete old
+                # Get count of tweets that will be transferred
+                rels_result = await session.run("""
+                    MATCH (t:Tweet)-[r:MENTIONS_ENTITY]->(e:Entity {name: $old})
+                    WHERE NOT (t)-[:MENTIONS_ENTITY]->(:Entity {name: $new})
+                    RETURN count(r) as count
+                """, old=old_name, new=new_name)
+                rels_record = await rels_result.single()
+                new_rels = rels_record["count"] if rels_record else 0
+                
+                # Get count of tweets already connected to target
+                existing_result = await session.run("""
+                    MATCH (t:Tweet)-[r:MENTIONS_ENTITY]->(e:Entity {name: $old})
+                    WHERE (t)-[:MENTIONS_ENTITY]->(:Entity {name: $new})
+                    RETURN count(r) as count
+                """, old=old_name, new=new_name)
+                existing_record = await existing_result.single()
+                existing_rels = existing_record["count"] if existing_record else 0
+                
+                # Transfer relationships: connect tweets to target entity
+                await session.run("""
+                    MATCH (t:Tweet)-[r:MENTIONS_ENTITY]->(old:Entity {name: $old})
+                    MATCH (new:Entity {name: $new})
+                    MERGE (t)-[:MENTIONS_ENTITY]->(new)
+                    DELETE r
+                """, old=old_name, new=new_name)
+                
+                # Delete old entity
+                await session.run("""
+                    MATCH (e:Entity {name: $name})
+                    DETACH DELETE e
+                """, name=old_name)
+                
+                return {
+                    "action": "merged",
+                    "old_name": old_name,
+                    "new_name": new_name,
+                    "relationships_transferred": new_rels,
+                    "relationships_already_existed": existing_rels,
+                    "total_processed": new_rels + existing_rels
+                }
+            else:
+                # Simple rename
+                result = await session.run("""
+                    MATCH (e:Entity {name: $old})
+                    SET e.name = $new
+                    RETURN e.name as name
+                """, old=old_name, new=new_name)
+                record = await result.single()
+                
+                return {
+                    "action": "renamed",
+                    "old_name": old_name,
+                    "new_name": new_name,
+                    "success": record is not None
+                }
+    
     async def get_truncated_tweets(self) -> dict:
         """Get all truncated tweets that need enrichment via X API"""
         async with self.client.session() as session:
